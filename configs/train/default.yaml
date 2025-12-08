@@ -1,0 +1,64 @@
+# Training Configuration
+# Two-stage training: NeRF (60 epochs) -> DMTet (100 epochs)
+
+name: default
+
+# Optimizer settings
+optimizer:
+  name: adamw
+  lr: 1.0e-5
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+
+# Learning rate scheduler
+scheduler:
+  name: cosine_annealing
+  warmup_steps: 3000
+  min_lr: 1.0e-7
+
+# Training stages
+stages:
+  # Stage 1: NeRF (volumetric rendering)
+  nerf:
+    epochs: 60
+    description: "Volumetric rendering for smooth gradient propagation"
+
+  # Stage 2: DMTet (explicit surface)
+  dmtet:
+    epochs: 100
+    description: "Surface extraction for fine geometric detail"
+
+# Loss weights (as in paper)
+loss:
+  mse: 1.0
+  lpips: 1.0
+  mask: 0.3
+  smooth_l1: 0.2
+  depth: 0.2
+  geodesic: 0.1  # Geodesic embedding loss
+
+# Training settings
+training:
+  gradient_clip: 1.0
+  accumulation_steps: 1
+  mixed_precision: true
+  compile_model: false  # torch.compile (experimental)
+
+# Checkpointing
+checkpoint:
+  save_freq: 1000
+  keep_last: 5
+  save_best: true
+  best_metric: psnr
+
+# Validation
+validation:
+  freq: 500
+  num_samples: 100
+  metrics: [psnr, ssim, lpips]
+
+# Early stopping
+early_stopping:
+  enabled: false
+  patience: 10
+  min_delta: 0.001

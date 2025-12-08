@@ -1,0 +1,46 @@
+# MoReMouse Main Configuration
+# Uses Hydra for config composition
+
+defaults:
+  - model: moremouse
+  - data: synthetic
+  - train: default
+  - _self_
+
+# Project paths
+paths:
+  root: ${hydra:runtime.cwd}
+  data: ${paths.root}/data
+  output: ${paths.root}/outputs
+  checkpoints: ${paths.root}/checkpoints
+  logs: ${paths.root}/logs
+
+# External data paths (relative paths for portability)
+# Can be overridden by environment variables or symlinks
+# Default: expects ../MAMMAL_mouse relative to project root
+external:
+  mammal_data: ${oc.env:MAMMAL_DATA_PATH,${paths.root}/../MAMMAL_mouse/data}
+  mouse_model: ${oc.env:MOUSE_MODEL_PATH,${paths.root}/../MAMMAL_mouse/mouse_model}
+
+# Experiment settings
+experiment:
+  name: moremouse_default
+  seed: 42
+  device: cuda:1  # GPU 1 on gpu05
+
+# Logging
+logging:
+  use_wandb: false  # Set to true to enable wandb
+  wandb_project: moremouse
+  wandb_entity: null
+  log_freq: 100
+  save_freq: 1000
+  eval_freq: 500
+
+# Hydra settings
+hydra:
+  run:
+    dir: ${paths.output}/${experiment.name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: ${paths.output}/${experiment.name}/multirun
+    subdir: ${hydra.job.num}

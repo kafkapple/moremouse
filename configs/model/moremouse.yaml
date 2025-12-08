@@ -1,0 +1,65 @@
+# MoReMouse Model Configuration
+# Reference: MoReMouse: Monocular Reconstruction of Laboratory Mouse (arXiv:2507.04258v2)
+
+# Image encoder (DINOv2)
+encoder:
+  name: dinov2_vitb14
+  pretrained: true
+  freeze: true
+  input_size: 378
+  feature_dim: 768
+
+# Triplane representation
+triplane:
+  resolution: 64  # 64x64 per plane
+  channels: 512   # Feature channels
+  num_planes: 3   # XY, XZ, YZ
+
+# Transformer decoder
+transformer:
+  num_layers: 12
+  num_heads: 16
+  hidden_dim: 768
+  mlp_dim: 3072
+  dropout: 0.1
+
+# MultiHead MLP decoder
+mlp_decoder:
+  hidden_layers: 10
+  hidden_dim: 256
+  output_channels:
+    rgb: 3
+    density: 1
+    embedding: 3  # Geodesic embedding (HSV)
+
+# NeRF stage settings
+nerf:
+  num_samples: 128
+  radius: 0.87
+  density_activation: trunc_exp
+  near: 0.1
+  far: 4.0
+
+# DMTet stage settings
+dmtet:
+  sdf_bias: -4.0
+  grid_resolution: 256
+  marching_cubes_resolution: 256
+
+# Gaussian Avatar settings (for synthetic data generation)
+avatar:
+  num_gaussians_per_vertex: 1
+  num_vertices: 13059  # MAMMAL mouse model
+  num_joints: 140
+  uv_resolution: 512
+  gaussian_params:
+    init_scale: 0.01
+    min_scale: 0.001
+    max_scale: 0.1
+    opacity_init: 0.8
+
+# Geodesic embedding
+geodesic:
+  embedding_dim: 3
+  num_anchor_points: 100
+  use_pca: true  # Transform to HSV space via PCA

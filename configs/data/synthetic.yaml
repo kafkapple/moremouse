@@ -1,0 +1,55 @@
+# Synthetic Data Configuration
+# Generated from Gaussian Mouse Avatar
+
+name: synthetic
+
+# Source data (markerless_mouse_1)
+source:
+  video_path: ${external.mammal_data}/markerless_mouse_1
+  mouse_model_path: ${external.mouse_model}
+
+  # Training: first 6000 frames
+  train_frames:
+    start: 0
+    end: 6000
+
+  # Evaluation: last 6000 frames (unseen poses)
+  eval_frames:
+    start: 6000
+    end: 12000
+
+# Avatar training settings
+avatar_training:
+  num_frames: 800  # As in paper
+  num_iterations: 400000
+
+# Synthetic data generation
+generation:
+  # Training data: 64 viewpoints per frame
+  num_viewpoints: 64
+  num_frames: 6000
+  total_scenes: 12000  # 2 sets of 6000 frames
+
+  # Camera settings
+  camera:
+    sphere_radius: 2.22
+    image_size: 800
+    fov_degrees: 29.86
+
+  # Evaluation: 4 orthogonal views
+  eval_viewpoints: [front, back, left, right]
+
+# Data augmentation
+augmentation:
+  enabled: true
+  random_rotation: 15.0  # degrees
+  random_scale: [0.9, 1.1]
+  color_jitter: 0.1
+  random_crop: false
+
+# Dataloader settings
+dataloader:
+  batch_size: 4
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 2

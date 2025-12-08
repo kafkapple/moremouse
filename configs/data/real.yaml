@@ -1,0 +1,38 @@
+# Real-World Data Configuration
+# For evaluation on real captured data
+
+name: real
+
+# Real capture settings (as in paper)
+capture:
+  num_cameras: 4  # PointGrey industrial cameras
+  resolution: [2048, 1500]
+  fov_horizontal: 22.34
+  fov_vertical: 16.44
+  enclosure:
+    type: cylindrical
+    diameter_cm: 20
+    height_cm: 20
+
+# Data paths
+data:
+  root: ${paths.data}/real_capture
+  frames: 5400
+
+# Preprocessing
+preprocessing:
+  # Mouse detection and centering
+  centroid_alignment: true
+  scale_normalization: true
+
+  # Background subtraction
+  background_subtraction: true
+
+  # Resize for inference
+  target_size: 378
+
+# Dataloader settings
+dataloader:
+  batch_size: 1
+  num_workers: 2
+  pin_memory: true

@@ -1,0 +1,62 @@
+# Environment
+.env
+*.env.local
+
+# Data and Models (large files)
+/data/
+/models/
+/outputs/
+/checkpoints/
+*.ckpt
+*.pt
+*.pth
+
+# Logs
+logs/
+wandb/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Hydra outputs
+multirun/
+.hydra/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
