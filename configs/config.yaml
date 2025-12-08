@@ -26,7 +26,7 @@ external:
 experiment:
   name: moremouse_default
   seed: 42
-  device: cuda:1  # GPU 1 on gpu05
+  device: cuda:0  # Use cuda:0 (set CUDA_VISIBLE_DEVICES to select physical GPU)
 
 # Logging
 logging:
