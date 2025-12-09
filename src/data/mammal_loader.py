@@ -4,6 +4,10 @@ MAMMAL Multi-view Dataset Loader
 Loads multi-view images and poses from MAMMAL mouse dataset
 for training the Gaussian Mouse Avatar (AGAM).
 
+Supports two data formats:
+1. Image directories: cam0/, cam1/, ... with frame_XXXXXX.png
+2. Video files: 0.mp4, 1.mp4, ... (MAMMAL nerf format)
+
 Reference: MoReMouse paper Section 3.1
 - 800 frames for avatar training
 - 8 camera viewpoints
@@ -21,11 +25,66 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 
+class VideoReader:
+    """Efficient video reader with frame caching."""
+
+    def __init__(self, video_path: Union[str, Path], cache_size: int = 100):
+        self.video_path = Path(video_path)
+        self.cache_size = cache_size
+        self.cache: Dict[int, np.ndarray] = {}
+        self.cache_order: List[int] = []
+
+        # Open video to get properties
+        cap = cv2.VideoCapture(str(self.video_path))
+        self.num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.fps = cap.get(cv2.CAP_PROP_FPS)
+        cap.release()
+
+    def get_frame(self, frame_idx: int) -> Optional[np.ndarray]:
+        """Get frame by index with caching."""
+        if frame_idx < 0 or frame_idx >= self.num_frames:
+            return None
+
+        # Check cache
+        if frame_idx in self.cache:
+            return self.cache[frame_idx]
+
+        # Read from video
+        cap = cv2.VideoCapture(str(self.video_path))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret:
+            return None
+
+        # Convert BGR to RGB
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Update cache
+        if len(self.cache) >= self.cache_size:
+            # Remove oldest
+            old_idx = self.cache_order.pop(0)
+            del self.cache[old_idx]
+
+        self.cache[frame_idx] = frame
+        self.cache_order.append(frame_idx)
+
+        return frame
+
+    def __len__(self) -> int:
+        return self.num_frames
+
+
 class MAMMALMultiviewDataset(Dataset):
     """
     MAMMAL Multi-view Dataset for Gaussian Avatar Training.
 
-    Expected directory structure:
+    Supports two directory structures:
+
+    1. Image-based (standard):
         markerless_mouse_1/
         ├── images/
         │   ├── cam0/
@@ -38,8 +97,18 @@ class MAMMALMultiviewDataset(Dataset):
         │   └── ...
         └── calibration.json (or cameras.pkl)
 
+    2. Video-based (MAMMAL nerf format):
+        markerless_mouse_1_nerf/
+        ├── videos_undist/
+        │   ├── 0.mp4
+        │   ├── 1.mp4
+        │   └── ... (one per camera)
+        ├── poses/
+        │   └── ...
+        └── cameras.json
+
     Args:
-        data_dir: Path to markerless_mouse_1 directory
+        data_dir: Path to data directory
         num_frames: Number of frames to use (default: all)
         frame_start: Starting frame index
         frame_end: Ending frame index
@@ -59,21 +128,107 @@ class MAMMALMultiviewDataset(Dataset):
         self.data_dir = Path(data_dir)
         self.image_size = image_size
 
-        # Discover structure
-        self.image_dir = self._find_image_dir()
-        self.pose_dir = self._find_pose_dir()
-        self.calibration = self._load_calibration()
+        # Detect data format (video or image)
+        self.use_video = self._detect_video_format()
 
-        # Get camera list
-        if cameras is not None:
-            self.cameras = cameras
+        if self.use_video:
+            # Video-based loading
+            self.video_readers = self._init_video_readers()
+            self.pose_dir = self._find_pose_dir()
+            self.calibration = self._load_calibration()
+
+            # Get camera list from video files
+            if cameras is not None:
+                self.cameras = cameras
+            else:
+                self.cameras = list(self.video_readers.keys())
+
+            # Get frame count from first video
+            if self.video_readers:
+                first_reader = list(self.video_readers.values())[0]
+                max_frames = first_reader.num_frames
+                self.frames = list(range(
+                    frame_start,
+                    min(frame_end or max_frames, max_frames)
+                ))
+                if num_frames is not None:
+                    self.frames = self.frames[:num_frames]
+            else:
+                self.frames = []
+
+            print(f"MAMMAL Dataset (video mode): {len(self.frames)} frames, {len(self.cameras)} cameras")
         else:
-            self.cameras = self._discover_cameras()
+            # Image-based loading
+            self.video_readers = {}
+            self.image_dir = self._find_image_dir()
+            self.pose_dir = self._find_pose_dir()
+            self.calibration = self._load_calibration()
 
-        # Get frame list
-        self.frames = self._discover_frames(frame_start, frame_end, num_frames)
+            # Get camera list
+            if cameras is not None:
+                self.cameras = cameras
+            else:
+                self.cameras = self._discover_cameras()
 
-        print(f"MAMMAL Dataset: {len(self.frames)} frames, {len(self.cameras)} cameras")
+            # Get frame list
+            self.frames = self._discover_frames(frame_start, frame_end, num_frames)
+
+            print(f"MAMMAL Dataset (image mode): {len(self.frames)} frames, {len(self.cameras)} cameras")
+
+    def _detect_video_format(self) -> bool:
+        """Detect if data is in video format."""
+        # Check for videos_undist directory with mp4 files
+        video_dirs = [
+            self.data_dir / "videos_undist",
+            self.data_dir / "videos",
+            self.data_dir,
+        ]
+        for vdir in video_dirs:
+            if vdir.exists():
+                mp4_files = list(vdir.glob("*.mp4"))
+                if mp4_files:
+                    return True
+        return False
+
+    def _init_video_readers(self) -> Dict[int, VideoReader]:
+        """Initialize video readers for each camera."""
+        readers = {}
+
+        # Find video directory
+        video_dirs = [
+            self.data_dir / "videos_undist",
+            self.data_dir / "videos",
+            self.data_dir,
+        ]
+
+        video_dir = None
+        for vdir in video_dirs:
+            if vdir.exists() and list(vdir.glob("*.mp4")):
+                video_dir = vdir
+                break
+
+        if video_dir is None:
+            print("Warning: No video directory found")
+            return readers
+
+        # Find all video files
+        for video_file in sorted(video_dir.glob("*.mp4")):
+            # Extract camera index from filename (e.g., "0.mp4" -> 0)
+            try:
+                cam_idx = int(video_file.stem)
+                readers[cam_idx] = VideoReader(video_file)
+                print(f"  Loaded video: {video_file.name} ({readers[cam_idx].num_frames} frames)")
+            except ValueError:
+                # Try other naming conventions
+                if video_file.stem.startswith("cam"):
+                    try:
+                        cam_idx = int(video_file.stem.replace("cam", ""))
+                        readers[cam_idx] = VideoReader(video_file)
+                        print(f"  Loaded video: {video_file.name} ({readers[cam_idx].num_frames} frames)")
+                    except ValueError:
+                        continue
+
+        return readers
 
     def _find_image_dir(self) -> Path:
         """Find image directory."""
@@ -310,6 +465,24 @@ class MAMMALMultiviewDataset(Dataset):
     def __len__(self) -> int:
         return len(self.frames)
 
+    def _get_frame_from_video(self, cam_idx: int, frame_idx: int) -> Optional[np.ndarray]:
+        """Get frame from video reader."""
+        if cam_idx not in self.video_readers:
+            return None
+
+        frame = self.video_readers[cam_idx].get_frame(frame_idx)
+        if frame is None:
+            return None
+
+        # Resize if needed
+        if frame.shape[0] != self.image_size or frame.shape[1] != self.image_size:
+            frame = cv2.resize(frame, (self.image_size, self.image_size))
+
+        # Normalize to [0, 1]
+        frame = frame.astype(np.float32) / 255.0
+
+        return frame
+
     def __getitem__(self, idx: int) -> Dict:
         """
         Get multi-view data for a frame.
@@ -329,12 +502,18 @@ class MAMMALMultiviewDataset(Dataset):
         Ks = []
 
         for cam_idx in self.cameras:
-            # Load image
-            img_path = self._get_image_path(cam_idx, frame_idx)
-            if img_path is not None:
-                img = self._load_image(img_path)
+            # Load image from video or image file
+            if self.use_video:
+                img = self._get_frame_from_video(cam_idx, frame_idx)
             else:
-                # Placeholder
+                img_path = self._get_image_path(cam_idx, frame_idx)
+                if img_path is not None:
+                    img = self._load_image(img_path)
+                else:
+                    img = None
+
+            if img is None:
+                # Placeholder for missing frames
                 img = np.zeros((self.image_size, self.image_size, 3), dtype=np.float32)
 
             images.append(img)

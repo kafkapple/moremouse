@@ -68,7 +68,7 @@ def train_avatar(args):
         batch_size=1,  # Multi-view, so batch_size=1 means 1 frame with all views
         num_workers=args.num_workers,
         num_frames=args.avatar_frames,
-        image_size=args.image_size,
+        image_size=args.avatar_image_size,  # Paper: 800x800 for avatar
     )
 
     # Train
@@ -287,12 +287,17 @@ def main():
 
     # Common args
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--image-size", type=int, default=378)
+    parser.add_argument("--image-size", type=int, default=378,
+                       help="Image size for MoReMouse training (378 for paper)")
+    parser.add_argument("--avatar-image-size", type=int, default=800,
+                       help="Image size for avatar training (800 for paper)")
     parser.add_argument("--num-workers", type=int, default=4)
 
-    # Data paths
-    parser.add_argument("--data-dir", type=str, default="../MAMMAL_mouse/data/markerless_mouse_1")
-    parser.add_argument("--mouse-model", type=str, default="../MAMMAL_mouse/mouse_model")
+    # Data paths (gpu05 server)
+    # Video format: /home/joon/data/markerless_mouse_1_nerf/videos_undist/
+    # Image format: /home/joon/data/markerless_mouse/mouse1/
+    parser.add_argument("--data-dir", type=str, default="/home/joon/data/markerless_mouse_1_nerf")
+    parser.add_argument("--mouse-model", type=str, default="/home/joon/data/MAMMAL_mouse/mouse_model")
 
     # Avatar training
     parser.add_argument("--avatar-frames", type=int, default=800)
