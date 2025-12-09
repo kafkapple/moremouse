@@ -33,10 +33,65 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
+import numpy as np
+from PIL import Image
+import torchvision.utils as vutils
+
 from src.models import MoReMouse
 from src.data import SyntheticDataset, get_transforms
 from src.losses import MoReMouseLoss
 from src.utils import setup_logging, get_logger, compute_metrics
+
+
+def create_visualization_grid(
+    input_img: torch.Tensor,
+    pred_img: torch.Tensor,
+    target_img: torch.Tensor = None,
+    nrow: int = 4,
+) -> np.ndarray:
+    """
+    Create visualization grid: Input | Prediction | (Target) | (Diff)
+
+    Args:
+        input_img: [B, C, H, W] or [B, H, W, C] input images
+        pred_img: [B, H, W, C] predicted images
+        target_img: [B, C, H, W] or [B, H, W, C] target images (optional)
+
+    Returns:
+        [H, W, 3] numpy array for visualization
+    """
+    # Ensure BCHW format
+    if input_img.dim() == 4 and input_img.shape[-1] == 3:
+        input_img = input_img.permute(0, 3, 1, 2)
+    if pred_img.dim() == 4 and pred_img.shape[-1] == 3:
+        pred_img = pred_img.permute(0, 3, 1, 2)
+    if target_img is not None:
+        if target_img.dim() == 4 and target_img.shape[-1] == 3:
+            target_img = target_img.permute(0, 3, 1, 2)
+
+    # Clamp to [0, 1]
+    input_img = torch.clamp(input_img, 0, 1)
+    pred_img = torch.clamp(pred_img, 0, 1)
+
+    # Build grid
+    images = [input_img[:nrow], pred_img[:nrow]]
+    if target_img is not None:
+        target_img = torch.clamp(target_img, 0, 1)
+        images.append(target_img[:nrow])
+        # Add difference map
+        diff = torch.abs(pred_img[:nrow] - target_img[:nrow])
+        diff = diff * 3  # Amplify for visibility
+        images.append(torch.clamp(diff, 0, 1))
+
+    # Concatenate vertically
+    all_imgs = torch.cat(images, dim=0)
+    grid = vutils.make_grid(all_imgs, nrow=nrow, padding=2, normalize=False)
+
+    # To numpy
+    grid_np = grid.cpu().numpy().transpose(1, 2, 0)
+    grid_np = (grid_np * 255).astype(np.uint8)
+
+    return grid_np
 
 
 class Trainer:
@@ -328,6 +383,10 @@ class Trainer:
             if self.global_step % self.cfg.logging.log_freq == 0:
                 self._log_step(losses)
 
+            # Periodic visualization (every eval_freq steps)
+            if self.global_step % self.cfg.logging.eval_freq == 0:
+                self._save_train_visualization(input_images, outputs["rgb"], target_images)
+
             # Save checkpoint
             if self.global_step % self.cfg.logging.save_freq == 0:
                 self._save_checkpoint()
@@ -340,12 +399,13 @@ class Trainer:
         )
 
     def _validate(self):
-        """Run validation."""
+        """Run validation with visualization."""
         self.model.eval()
         metrics_list = []
+        vis_samples = None  # Store first batch for visualization
 
         with torch.no_grad():
-            for batch in tqdm(self.val_loader, desc="Validation"):
+            for batch_idx, batch in enumerate(tqdm(self.val_loader, desc="Validation")):
                 input_images = batch["input_image"].to(self.device)
                 target_images = batch["target_images"][:, 0].to(self.device)
                 viewmats = batch["target_viewmats"][:, 0].to(self.device)
@@ -358,6 +418,14 @@ class Trainer:
                         viewmats=viewmats,
                         Ks=Ks,
                     )
+
+                # Store first batch for visualization
+                if batch_idx == 0:
+                    vis_samples = {
+                        "input": input_images.detach(),
+                        "pred": outputs["rgb"].detach(),
+                        "target": target_images.detach(),
+                    }
 
                 # Compute metrics
                 metrics = compute_metrics(
@@ -376,14 +444,61 @@ class Trainer:
 
         self.logger.info(f"Validation - PSNR: {avg_metrics['psnr']:.2f}, SSIM: {avg_metrics['ssim']:.4f}")
 
+        # Create and save visualization
+        if vis_samples is not None:
+            vis_grid = create_visualization_grid(
+                vis_samples["input"],
+                vis_samples["pred"],
+                vis_samples["target"],
+                nrow=min(4, vis_samples["input"].shape[0]),
+            )
+
+            # Save to disk
+            vis_dir = Path(self.cfg.paths.output) / self.cfg.experiment.name / "visualizations"
+            vis_dir.mkdir(parents=True, exist_ok=True)
+            vis_path = vis_dir / f"val_epoch{self.current_epoch:03d}_step{self.global_step:06d}.png"
+            Image.fromarray(vis_grid).save(vis_path)
+            self.logger.info(f"Saved visualization to {vis_path}")
+
         # Log to wandb
         if self.use_wandb:
             wandb.log({f"val/{k}": v for k, v in avg_metrics.items()}, step=self.global_step)
+            # Log visualization image
+            if vis_samples is not None:
+                wandb.log({
+                    "val/visualization": wandb.Image(vis_grid, caption="Input | Pred | Target | Diff")
+                }, step=self.global_step)
 
         # Save best model
         if avg_metrics.get('lpips', float('inf')) < self.best_metric:
             self.best_metric = avg_metrics['lpips']
             self._save_checkpoint(is_best=True)
+
+    def _save_train_visualization(
+        self,
+        input_images: torch.Tensor,
+        pred_images: torch.Tensor,
+        target_images: torch.Tensor,
+    ):
+        """Save training visualization."""
+        vis_grid = create_visualization_grid(
+            input_images.detach(),
+            pred_images.detach(),
+            target_images.detach(),
+            nrow=min(4, input_images.shape[0]),
+        )
+
+        # Save to disk
+        vis_dir = Path(self.cfg.paths.output) / self.cfg.experiment.name / "visualizations"
+        vis_dir.mkdir(parents=True, exist_ok=True)
+        vis_path = vis_dir / f"train_step{self.global_step:06d}.png"
+        Image.fromarray(vis_grid).save(vis_path)
+
+        # Log to wandb
+        if self.use_wandb:
+            wandb.log({
+                "train/visualization": wandb.Image(vis_grid, caption="Input | Pred | Target | Diff")
+            }, step=self.global_step)
 
     def _log_step(self, losses: dict):
         """Log training step."""
