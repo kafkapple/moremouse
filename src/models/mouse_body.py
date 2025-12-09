@@ -74,9 +74,39 @@ class MouseBodyModel(nn.Module):
             "t_pose_joints",
             to_tensor(params['t_pose_joints'], dtype)
         )
+
+        # Load skinning weights - handle sparse matrix and shape variations
+        skinning_weights = params['skinning_weights']
+        if hasattr(skinning_weights, 'todense'):
+            skinning_weights = np.asarray(skinning_weights.todense())
+        else:
+            skinning_weights = np.asarray(skinning_weights)
+
+        # Get expected dimensions
+        num_verts = params['vertices'].shape[0]
+        num_joints = params['t_pose_joints'].shape[0]
+
+        # Handle shape: should be [V, J] for einsum 'bjmn,vj->bvmn'
+        if skinning_weights.shape == (num_joints, num_verts):
+            # Transpose from [J, V] to [V, J]
+            skinning_weights = skinning_weights.T
+        elif skinning_weights.shape != (num_verts, num_joints):
+            # Try to find correct interpretation
+            if skinning_weights.shape[0] == num_verts:
+                # Might have extra columns, slice to num_joints
+                skinning_weights = skinning_weights[:, :num_joints]
+            elif skinning_weights.shape[1] == num_verts:
+                # Transposed with extra rows
+                skinning_weights = skinning_weights[:num_joints, :].T
+            else:
+                raise ValueError(
+                    f"Cannot interpret skinning_weights shape {skinning_weights.shape}. "
+                    f"Expected ({num_verts}, {num_joints}) or ({num_joints}, {num_verts})"
+                )
+
         self.register_buffer(
             "weights",
-            to_tensor(params['skinning_weights'].todense(), dtype)
+            to_tensor(skinning_weights, dtype)
         )
         self.register_buffer(
             "parent",
