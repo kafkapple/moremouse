@@ -448,6 +448,7 @@ class GaussianAvatarTrainer:
         log_freq: int = 100,
         vis_freq: int = 1000,
         vis_dir: str = "outputs/avatar_vis",
+        resume_from: str = None,
     ):
         """
         Full training loop for Gaussian Avatar.
@@ -460,6 +461,7 @@ class GaussianAvatarTrainer:
             log_freq: Log metrics every N iterations
             vis_freq: Save visualization every N iterations
             vis_dir: Directory for visualizations
+            resume_from: Path to checkpoint to resume from (optional)
         """
         from pathlib import Path
         from tqdm import tqdm
@@ -470,19 +472,41 @@ class GaussianAvatarTrainer:
         vis_dir = Path(vis_dir)
         vis_dir.mkdir(parents=True, exist_ok=True)
 
+        # Resume from checkpoint if specified
+        start_iteration = 0
+        if resume_from is not None:
+            if Path(resume_from).exists():
+                start_iteration = self.load_checkpoint(resume_from)
+                print(f"Resuming from iteration {start_iteration}")
+            else:
+                print(f"Warning: Checkpoint {resume_from} not found, starting from scratch")
+        else:
+            # Auto-detect latest checkpoint
+            existing_checkpoints = sorted(checkpoint_dir.glob("avatar_iter_*.pt"))
+            if existing_checkpoints:
+                latest = existing_checkpoints[-1]
+                print(f"Found existing checkpoint: {latest}")
+                start_iteration = self.load_checkpoint(str(latest))
+                print(f"Auto-resuming from iteration {start_iteration}")
+
         # LR scheduler
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer, T_max=num_iterations, eta_min=1e-6
         )
+        # Step scheduler to correct position if resuming
+        for _ in range(start_iteration):
+            scheduler.step()
 
         # Training loop
         data_iter = iter(dataloader)
-        pbar = tqdm(range(num_iterations), desc="Training Avatar")
+        remaining_iterations = num_iterations - start_iteration
+        pbar = tqdm(range(remaining_iterations), desc=f"Training Avatar (from {start_iteration})")
 
         running_loss = {"total": 0, "l1": 0, "ssim": 0, "lpips": 0}
         log_count = 0
 
-        for iteration in pbar:
+        for i in pbar:
+            iteration = start_iteration + i
             # Get batch (cycle through data)
             try:
                 batch = next(data_iter)

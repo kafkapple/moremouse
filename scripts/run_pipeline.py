@@ -71,7 +71,7 @@ def train_avatar(args):
         image_size=args.avatar_image_size,  # Paper: 800x800 for avatar
     )
 
-    # Train
+    # Train (with auto-resume support)
     trainer.train(
         dataloader=dataloader,
         num_iterations=args.avatar_iterations,
@@ -80,6 +80,7 @@ def train_avatar(args):
         log_freq=100,
         save_freq=args.save_freq,
         vis_freq=args.vis_freq,
+        resume_from=args.resume,  # None = auto-detect latest checkpoint
     )
 
     print(f"\nAvatar training complete!")
@@ -308,6 +309,8 @@ def main():
     parser.add_argument("--avatar-vis-dir", type=str, default="outputs/avatar_vis")
     parser.add_argument("--avatar-checkpoint", type=str, default=None,
                        help="Pre-trained avatar checkpoint for synthetic data generation")
+    parser.add_argument("--resume", type=str, default=None,
+                       help="Resume training from checkpoint (auto-detects latest if not specified)")
 
     # Synthetic data generation
     parser.add_argument("--synthetic-output", type=str, default="data/synthetic")
