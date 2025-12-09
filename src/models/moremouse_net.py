@@ -159,14 +159,14 @@ class MoReMouse(nn.Module):
         triplane_config.setdefault("image_feature_dim", self.encoder.feature_dim)
         self.triplane_generator = TriplaneGenerator(**triplane_config)
 
-        # MLP decoder
-        triplane_channels = triplane_config.get("triplane_channels", 512)
-        decoder_config.setdefault("input_dim", triplane_channels * 3)
+        # MLP decoder - use output_channels from triplane (80 in paper)
+        output_channels = triplane_config.get("output_channels", 80)
+        decoder_config.setdefault("input_dim", output_channels * 3)  # 80 * 3 = 240
         self.decoder = MultiHeadMLP(**decoder_config)
 
         # Triplane decoder (for sampling)
         self.triplane_decoder = TriplaneDecoder(
-            triplane_channels=triplane_channels,
+            triplane_channels=output_channels,  # Use output_channels (80)
         )
 
         self.render_mode = render_mode

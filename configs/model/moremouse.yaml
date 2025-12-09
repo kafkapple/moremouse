@@ -1,32 +1,36 @@
 # MoReMouse Model Configuration
 # Reference: MoReMouse: Monocular Reconstruction of Laboratory Mouse (arXiv:2507.04258v2)
+# All values from Table A3 in the paper
 
 # Image encoder (DINOv2)
 encoder:
   name: dinov2_vitb14
   pretrained: true
   freeze: true
-  input_size: 378
-  feature_dim: 768
+  input_size: 378       # Paper: 378×378
+  feature_dim: 768      # Paper: 768
 
 # Triplane representation
 triplane:
-  resolution: 64  # 64x64 per plane
-  channels: 512   # Feature channels
-  num_planes: 3   # XY, XZ, YZ
+  resolution: 128          # Paper: Output shape 3×80×128×128
+  internal_resolution: 64  # Paper: Plane size 64×64 for attention
+  channels: 512            # Paper: Backbone input channels 512
+  output_channels: 80      # Paper: Triplane Upsampler output channels 80
+  num_planes: 3            # XY, XZ, YZ
 
-# Transformer decoder
+# Transformer decoder (Backbone in paper)
 transformer:
-  num_layers: 12
-  num_heads: 16
-  hidden_dim: 768
+  num_layers: 12      # Paper: Attention layers 12
+  num_heads: 16       # Paper: Attention heads 16
+  head_dim: 64        # Paper: Attention head dimension 64
+  cross_attn_dim: 768 # Paper: Cross attention dimension 768
   mlp_dim: 3072
   dropout: 0.1
 
 # MultiHead MLP decoder
 mlp_decoder:
-  hidden_layers: 10
-  hidden_dim: 256
+  hidden_layers: 10   # Paper: Shared hidden layers 10
+  hidden_dim: 64      # Paper: Neurons 64
   output_channels:
     rgb: 3
     density: 1

@@ -5,6 +5,7 @@ Implements triplane-based 3D representation used in MoReMouse.
 Three orthogonal feature planes (XY, XZ, YZ) encode 3D information.
 
 Reference: MoReMouse paper - 64x64 resolution, 512 channels per plane
+Uses memory-efficient Flash Attention with internal lower resolution.
 """
 
 from typing import Dict, Optional, Tuple
@@ -19,14 +20,24 @@ class TriplaneGenerator(nn.Module):
     """
     Generates triplane features from image features via transformer decoder.
 
-    Uses cross-attention between learnable triplane queries and image features.
+    Memory optimization: Uses smaller internal resolution (e.g., 16x16) for
+    attention operations, then upsamples to target resolution (128x128).
+    This reduces attention memory from O((64*64*3)^2) to O((16*16*3)^2).
+
+    Paper spec (Table A3):
+    - Triplane: 64x64 internal, 128x128 output
+    - Backbone: 512 channels, 12 layers, 16 heads, head_dim=64
+    - Upsampler: 512 -> 80 channels, output 3×80×128×128
 
     Args:
         image_feature_dim: Input image feature dimension (e.g., 768 for DINOv2)
-        triplane_resolution: Resolution of each plane (default: 64)
-        triplane_channels: Channels per plane (default: 512)
-        num_heads: Number of attention heads
-        num_layers: Number of transformer layers
+        triplane_resolution: Output resolution of each plane (default: 128)
+        internal_resolution: Internal resolution for attention (default: 64)
+        triplane_channels: Internal channels (default: 512)
+        output_channels: Output channels after upsampler (default: 80)
+        num_heads: Number of attention heads (default: 16)
+        head_dim: Attention head dimension (default: 64)
+        num_layers: Number of transformer layers (default: 12)
         mlp_dim: MLP hidden dimension
         dropout: Dropout rate
     """
@@ -34,21 +45,27 @@ class TriplaneGenerator(nn.Module):
     def __init__(
         self,
         image_feature_dim: int = 768,
-        triplane_resolution: int = 64,
-        triplane_channels: int = 512,
+        triplane_resolution: int = 128,   # Paper: 128x128 output
+        internal_resolution: int = 64,    # Paper: 64x64 for attention
+        triplane_channels: int = 512,     # Internal channels
+        output_channels: int = 80,        # Paper: output 80 channels
         num_heads: int = 16,
+        head_dim: int = 64,               # Paper: Attention head dimension = 64
         num_layers: int = 12,
         mlp_dim: int = 3072,
         dropout: float = 0.1,
     ):
         super().__init__()
 
-        self.resolution = triplane_resolution
+        self.output_resolution = triplane_resolution
+        self.internal_resolution = internal_resolution
         self.channels = triplane_channels
+        self.output_channels = output_channels
         self.num_planes = 3
 
-        # Learnable triplane queries
-        num_queries = 3 * triplane_resolution * triplane_resolution
+        # Learnable triplane queries at INTERNAL resolution (memory efficient)
+        # 64x64x3 = 12,288 tokens (paper spec)
+        num_queries = 3 * internal_resolution * internal_resolution
         self.queries = nn.Parameter(
             torch.randn(1, num_queries, triplane_channels) * 0.02
         )
@@ -56,11 +73,12 @@ class TriplaneGenerator(nn.Module):
         # Input projection (image features to transformer dim)
         self.input_proj = nn.Linear(image_feature_dim, triplane_channels)
 
-        # Transformer decoder layers
+        # Transformer decoder layers with Flash Attention
         self.layers = nn.ModuleList([
             TransformerDecoderLayer(
                 d_model=triplane_channels,
                 nhead=num_heads,
+                head_dim=head_dim,  # Paper: 64
                 dim_feedforward=mlp_dim,
                 dropout=dropout,
             )
@@ -69,6 +87,15 @@ class TriplaneGenerator(nn.Module):
 
         # Layer norm
         self.norm = nn.LayerNorm(triplane_channels)
+
+        # Triplane Upsampler: internal_resolution -> output_resolution
+        # Paper: 512 channels -> 80 channels, 64x64 -> 128x128
+        self.upsampler = TriplaneUpsampler(
+            in_channels=triplane_channels,
+            out_channels=output_channels,
+            in_resolution=internal_resolution,
+            out_resolution=triplane_resolution,
+        )
 
     def forward(
         self,
@@ -83,7 +110,7 @@ class TriplaneGenerator(nn.Module):
             image_pos: Optional positional encoding for image features
 
         Returns:
-            [B, 3, C, H, W] triplane features
+            [B, 3, C, H, W] triplane features at output_resolution
         """
         B = image_features.shape[0]
 
@@ -91,7 +118,7 @@ class TriplaneGenerator(nn.Module):
         memory = self.input_proj(image_features)  # [B, N, C]
 
         # Expand queries for batch
-        queries = self.queries.expand(B, -1, -1)  # [B, 3*H*W, C]
+        queries = self.queries.expand(B, -1, -1)  # [B, 3*h*w, C] (h=internal_res)
 
         # Transformer decoder
         output = queries
@@ -100,41 +127,122 @@ class TriplaneGenerator(nn.Module):
 
         output = self.norm(output)
 
-        # Reshape to triplane format
-        # [B, 3*H*W, C] -> [B, 3, H, W, C] -> [B, 3, C, H, W]
-        H = W = self.resolution
+        # Reshape to triplane format at internal resolution
+        # [B, 3*h*w, C] -> [B, 3, C, h, w]
+        h = w = self.internal_resolution
         triplane = rearrange(
             output,
             'b (n h w) c -> b n c h w',
-            n=3, h=H, w=W
+            n=3, h=h, w=w
         )
+
+        # Upsample to output resolution
+        triplane = self.upsampler(triplane)  # [B, 3, C, H, W]
+
+        return triplane
+
+
+class TriplaneUpsampler(nn.Module):
+    """
+    Upsamples triplane from internal resolution to output resolution.
+
+    Uses conv-based upsampling for smooth interpolation.
+    Reference: MoReMouse paper Table A3 - Triplane Upsampler
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 512,
+        out_channels: int = 512,
+        in_resolution: int = 16,
+        out_resolution: int = 64,
+    ):
+        super().__init__()
+
+        self.in_resolution = in_resolution
+        self.out_resolution = out_resolution
+
+        # Calculate upsampling factor
+        scale_factor = out_resolution // in_resolution  # e.g., 64/16 = 4
+
+        # Upsampling layers
+        layers = []
+        current_res = in_resolution
+        current_ch = in_channels
+
+        while current_res < out_resolution:
+            # Double resolution each step
+            layers.extend([
+                nn.ConvTranspose2d(
+                    current_ch, current_ch,
+                    kernel_size=4, stride=2, padding=1
+                ),
+                nn.GroupNorm(8, current_ch),
+                nn.GELU(),
+            ])
+            current_res *= 2
+
+        # Final projection
+        layers.append(
+            nn.Conv2d(current_ch, out_channels, kernel_size=3, padding=1)
+        )
+
+        self.upsample = nn.Sequential(*layers)
+
+    def forward(self, triplane: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            triplane: [B, 3, C, h, w] low-res triplane
+
+        Returns:
+            [B, 3, C, H, W] high-res triplane
+        """
+        B, N, C, h, w = triplane.shape
+
+        # Process each plane
+        triplane = rearrange(triplane, 'b n c h w -> (b n) c h w')
+        triplane = self.upsample(triplane)
+        triplane = rearrange(triplane, '(b n) c h w -> b n c h w', b=B, n=N)
 
         return triplane
 
 
 class TransformerDecoderLayer(nn.Module):
     """
-    Single transformer decoder layer with self-attention and cross-attention.
+    Single transformer decoder layer with Flash Attention.
+
+    Uses F.scaled_dot_product_attention for memory-efficient attention
+    (O(n) memory instead of O(n^2) with Flash Attention backend).
+
+    Paper spec: head_dim=64, nhead=16 (separate from d_model=512)
     """
 
     def __init__(
         self,
         d_model: int,
         nhead: int,
+        head_dim: int = 64,  # Paper: Attention head dimension = 64
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
     ):
         super().__init__()
 
-        # Self-attention
-        self.self_attn = nn.MultiheadAttention(
-            d_model, nhead, dropout=dropout, batch_first=True
-        )
+        self.d_model = d_model
+        self.nhead = nhead
+        self.head_dim = head_dim  # Paper specifies 64, independent of d_model
+        self.inner_dim = nhead * head_dim  # 16 * 64 = 1024
 
-        # Cross-attention
-        self.cross_attn = nn.MultiheadAttention(
-            d_model, nhead, dropout=dropout, batch_first=True
-        )
+        # Self-attention projections (project to inner_dim, not d_model)
+        self.q_proj_self = nn.Linear(d_model, self.inner_dim)
+        self.k_proj_self = nn.Linear(d_model, self.inner_dim)
+        self.v_proj_self = nn.Linear(d_model, self.inner_dim)
+        self.out_proj_self = nn.Linear(self.inner_dim, d_model)
+
+        # Cross-attention projections
+        self.q_proj_cross = nn.Linear(d_model, self.inner_dim)
+        self.k_proj_cross = nn.Linear(d_model, self.inner_dim)
+        self.v_proj_cross = nn.Linear(d_model, self.inner_dim)
+        self.out_proj_cross = nn.Linear(self.inner_dim, d_model)
 
         # Feedforward
         self.ffn = nn.Sequential(
@@ -151,6 +259,46 @@ class TransformerDecoderLayer(nn.Module):
         self.norm3 = nn.LayerNorm(d_model)
 
         self.dropout = nn.Dropout(dropout)
+        self.attn_dropout = dropout
+
+    def _flash_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        out_proj: nn.Linear,
+    ) -> torch.Tensor:
+        """
+        Memory-efficient attention using scaled_dot_product_attention.
+
+        Args:
+            q, k, v: [B, seq_len, inner_dim] (after projection)
+            out_proj: Output projection layer
+
+        Returns:
+            [B, seq_len, d_model]
+        """
+        B, T, _ = q.shape
+        _, S, _ = k.shape
+
+        # Reshape for multi-head attention: [B, heads, seq, head_dim]
+        q = q.view(B, T, self.nhead, self.head_dim).transpose(1, 2)
+        k = k.view(B, S, self.nhead, self.head_dim).transpose(1, 2)
+        v = v.view(B, S, self.nhead, self.head_dim).transpose(1, 2)
+
+        # Flash Attention (memory-efficient, uses O(n) memory)
+        dropout_p = self.attn_dropout if self.training else 0.0
+        attn_output = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=None,
+            dropout_p=dropout_p,
+            is_causal=False,
+        )
+
+        # Reshape back: [B, heads, T, head_dim] -> [B, T, inner_dim]
+        attn_output = attn_output.transpose(1, 2).contiguous().view(B, T, self.inner_dim)
+
+        return out_proj(attn_output)
 
     def forward(
         self,
@@ -165,13 +313,19 @@ class TransformerDecoderLayer(nn.Module):
         Returns:
             [B, T, D] updated queries
         """
-        # Self-attention
-        tgt2, _ = self.self_attn(tgt, tgt, tgt)
+        # Self-attention with Flash Attention
+        q = self.q_proj_self(tgt)
+        k = self.k_proj_self(tgt)
+        v = self.v_proj_self(tgt)
+        tgt2 = self._flash_attention(q, k, v, self.out_proj_self)
         tgt = tgt + self.dropout(tgt2)
         tgt = self.norm1(tgt)
 
-        # Cross-attention
-        tgt2, _ = self.cross_attn(tgt, memory, memory)
+        # Cross-attention with Flash Attention
+        q = self.q_proj_cross(tgt)
+        k = self.k_proj_cross(memory)
+        v = self.v_proj_cross(memory)
+        tgt2 = self._flash_attention(q, k, v, self.out_proj_cross)
         tgt = tgt + self.dropout(tgt2)
         tgt = self.norm2(tgt)
 
@@ -189,10 +343,14 @@ class TriplaneDecoder(nn.Module):
     For each 3D point, samples features from three planes and
     aggregates them through an MLP decoder.
 
+    Paper spec (Table A3):
+    - Input: 80 channels per plane (from Triplane Upsampler)
+    - MultiHeadMLP: 64 neurons, 10 shared hidden layers
+
     Args:
-        triplane_channels: Channels per plane
-        hidden_dim: MLP hidden dimension
-        num_hidden_layers: Number of hidden layers
+        triplane_channels: Channels per plane (default: 80)
+        hidden_dim: MLP hidden dimension (default: 64)
+        num_hidden_layers: Number of hidden layers (default: 10)
         output_rgb: Output RGB channels
         output_density: Output density
         output_embedding: Output geodesic embedding
@@ -200,9 +358,9 @@ class TriplaneDecoder(nn.Module):
 
     def __init__(
         self,
-        triplane_channels: int = 512,
-        hidden_dim: int = 256,
-        num_hidden_layers: int = 10,
+        triplane_channels: int = 80,   # Paper: Triplane Upsampler output 80
+        hidden_dim: int = 64,          # Paper: Neurons 64
+        num_hidden_layers: int = 10,   # Paper: Shared hidden layers 10
         output_rgb: int = 3,
         output_density: int = 1,
         output_embedding: int = 3,
@@ -327,6 +485,11 @@ class MultiHeadMLP(nn.Module):
     """
     Multi-head MLP decoder as described in the paper.
 
+    Paper spec (Table A3):
+    - Neurons: 64
+    - Shared hidden layers: 10
+    - Hidden layers for density/feature/deformation heads: 1
+
     10 shared hidden layers followed by separate heads for
     RGB, density, and embedding outputs.
     """
@@ -334,8 +497,8 @@ class MultiHeadMLP(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        hidden_dim: int = 256,
-        num_shared_layers: int = 10,
+        hidden_dim: int = 64,          # Paper: Neurons 64
+        num_shared_layers: int = 10,   # Paper: Shared hidden layers 10
         output_dims: Dict[str, int] = None,
     ):
         super().__init__()

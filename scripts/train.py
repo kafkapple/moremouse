@@ -54,6 +54,12 @@ class Trainer:
         self.device = torch.device(cfg.experiment.device)
         self.logger.info(f"Using device: {self.device}")
 
+        # Setup mixed precision (AMP)
+        self.use_amp = cfg.train.training.mixed_precision and self.device.type == "cuda"
+        self.scaler = torch.amp.GradScaler(device='cuda', enabled=self.use_amp)
+        if self.use_amp:
+            self.logger.info("Mixed precision training enabled (AMP)")
+
         # Create model
         self.model = self._create_model()
         self.model.to(self.device)
@@ -95,8 +101,11 @@ class Trainer:
 
         triplane_config = {
             "triplane_resolution": model_cfg.triplane.resolution,
+            "internal_resolution": model_cfg.triplane.get("internal_resolution", 64),
             "triplane_channels": model_cfg.triplane.channels,
+            "output_channels": model_cfg.triplane.get("output_channels", 80),
             "num_heads": model_cfg.transformer.num_heads,
+            "head_dim": model_cfg.transformer.get("head_dim", 64),
             "num_layers": model_cfg.transformer.num_layers,
             "mlp_dim": model_cfg.transformer.mlp_dim,
         }
@@ -261,42 +270,45 @@ class Trainer:
             Ks = batch["K"].to(self.device)
             target_embedding = batch["embedding"].to(self.device)
 
-            # Forward pass
-            outputs = self.model(
-                input_images,
-                viewmats=viewmats,
-                Ks=Ks,
-            )
+            # Forward pass with AMP autocast
+            with torch.amp.autocast(device_type='cuda', enabled=self.use_amp):
+                outputs = self.model(
+                    input_images,
+                    viewmats=viewmats,
+                    Ks=Ks,
+                )
 
-            # Prepare targets
-            targets = {
-                "rgb": target_images.permute(0, 2, 3, 1),  # [B, H, W, 3]
-                "mask": (target_images.sum(dim=1) > 0).float(),  # Simple mask
-                "embedding": target_embedding.permute(0, 2, 3, 1),
-            }
+                # Prepare targets
+                targets = {
+                    "rgb": target_images.permute(0, 2, 3, 1),  # [B, H, W, 3]
+                    "mask": (target_images.sum(dim=1) > 0).float(),  # Simple mask
+                    "embedding": target_embedding.permute(0, 2, 3, 1),
+                }
 
-            # Prepare predictions
-            preds = {
-                "rgb": outputs["rgb"],
-                "alpha": outputs["alpha"],
-                "embedding": outputs.get("embedding"),
-            }
+                # Prepare predictions
+                preds = {
+                    "rgb": outputs["rgb"],
+                    "alpha": outputs["alpha"],
+                    "embedding": outputs.get("embedding"),
+                }
 
-            # Compute loss
-            losses = self.criterion(preds, targets)
+                # Compute loss
+                losses = self.criterion(preds, targets)
 
-            # Backward pass
+            # Backward pass with gradient scaling
             self.optimizer.zero_grad()
-            losses["total"].backward()
+            self.scaler.scale(losses["total"]).backward()
 
-            # Gradient clipping
+            # Gradient clipping (unscale first for proper clipping)
             if self.cfg.train.training.gradient_clip > 0:
+                self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
                     self.cfg.train.training.gradient_clip,
                 )
 
-            self.optimizer.step()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             # Update metrics
             for k, v in losses.items():
@@ -338,12 +350,13 @@ class Trainer:
                 viewmats = batch["target_viewmats"][:, 0].to(self.device)
                 Ks = batch["K"].to(self.device)
 
-                # Forward pass
-                outputs = self.model(
-                    input_images,
-                    viewmats=viewmats,
-                    Ks=Ks,
-                )
+                # Forward pass with AMP autocast
+                with torch.amp.autocast(device_type='cuda', enabled=self.use_amp):
+                    outputs = self.model(
+                        input_images,
+                        viewmats=viewmats,
+                        Ks=Ks,
+                    )
 
                 # Compute metrics
                 metrics = compute_metrics(
