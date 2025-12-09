@@ -283,14 +283,15 @@ class GaussianAvatar(nn.Module):
 
             # Render using gsplat
             # backgrounds must be [C] or [H, W, C] for gsplat
+            # Detach viewmat and K as well to prevent grad issues
             render_colors, render_alphas, info = rasterization(
                 means=means,
                 quats=quats,
                 scales=scales,
                 opacities=opacities,
                 colors=colors,
-                viewmats=viewmat[b:b+1],
-                Ks=K[b:b+1],
+                viewmats=viewmat[b:b+1].detach(),
+                Ks=K[b:b+1].detach(),
                 width=width,
                 height=height,
                 backgrounds=torch.ones(3, device=device),  # [C] format
