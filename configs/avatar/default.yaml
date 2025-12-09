@@ -1,0 +1,41 @@
+# Gaussian Avatar (AGAM) Training Configuration
+# Reference: MoReMouse paper Section 3.1
+
+name: default
+
+# Data settings
+data:
+  num_frames: 800          # Paper: 800 frames for avatar training
+  num_cameras: 8           # Paper: 8 viewpoints
+  image_size: 800          # Paper: 800x800
+
+# Avatar architecture
+avatar:
+  gaussians_per_vertex: 1  # Number of Gaussians per mesh vertex
+  init_scale: 0.01         # Initial Gaussian scale
+  min_scale: 0.001
+  max_scale: 0.1
+  opacity_init: 0.8        # Initial opacity
+
+# Training settings
+training:
+  num_iterations: 400000   # Paper: 400K iterations
+  lr: 1.0e-3               # Learning rate
+  lr_min: 1.0e-6           # Minimum LR for cosine annealing
+
+# Loss weights
+loss:
+  l1: 1.0                  # L1 RGB loss
+  ssim: 0.2                # SSIM loss
+  lpips: 0.1               # Perceptual loss
+
+# Logging
+logging:
+  log_freq: 100            # Log metrics every N iterations
+  vis_freq: 1000           # Save visualization every N iterations
+  save_freq: 10000         # Save checkpoint every N iterations
+
+# Paths
+paths:
+  checkpoint_dir: checkpoints/avatar
+  vis_dir: outputs/avatar_vis

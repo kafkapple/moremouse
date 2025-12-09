@@ -274,11 +274,12 @@ class GaussianAvatar(nn.Module):
         rendered_alphas = []
 
         for b in range(B):
-            means = gaussian_params["means"][b]
-            quats = gaussian_params["rotations"][b]
-            scales = gaussian_params["scales"][b]
-            colors = gaussian_params["colors"][b]
-            opacities = gaussian_params["opacity"][b]
+            # Detach tensors for gsplat (avoids "can't call numpy on grad tensor" error)
+            means = gaussian_params["means"][b].detach()
+            quats = gaussian_params["rotations"][b].detach()
+            scales = gaussian_params["scales"][b].detach()
+            colors = gaussian_params["colors"][b].detach()
+            opacities = gaussian_params["opacity"][b].detach()
 
             # Render using gsplat
             # backgrounds must be [C] or [H, W, C] for gsplat
@@ -436,3 +437,202 @@ class GaussianAvatarTrainer:
             "ssim": ssim_loss.item(),
             "lpips": lpips_loss.item(),
         }
+
+    def train(
+        self,
+        dataloader,
+        num_iterations: int = 400000,
+        checkpoint_dir: str = "checkpoints/avatar",
+        save_freq: int = 10000,
+        log_freq: int = 100,
+        vis_freq: int = 1000,
+        vis_dir: str = "outputs/avatar_vis",
+    ):
+        """
+        Full training loop for Gaussian Avatar.
+
+        Args:
+            dataloader: MAMMAL multi-view dataloader
+            num_iterations: Total iterations (paper: 400K)
+            checkpoint_dir: Directory for checkpoints
+            save_freq: Save checkpoint every N iterations
+            log_freq: Log metrics every N iterations
+            vis_freq: Save visualization every N iterations
+            vis_dir: Directory for visualizations
+        """
+        from pathlib import Path
+        from tqdm import tqdm
+        import cv2
+
+        checkpoint_dir = Path(checkpoint_dir)
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        vis_dir = Path(vis_dir)
+        vis_dir.mkdir(parents=True, exist_ok=True)
+
+        # LR scheduler
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=num_iterations, eta_min=1e-6
+        )
+
+        # Training loop
+        data_iter = iter(dataloader)
+        pbar = tqdm(range(num_iterations), desc="Training Avatar")
+
+        running_loss = {"total": 0, "l1": 0, "ssim": 0, "lpips": 0}
+        log_count = 0
+
+        for iteration in pbar:
+            # Get batch (cycle through data)
+            try:
+                batch = next(data_iter)
+            except StopIteration:
+                data_iter = iter(dataloader)
+                batch = next(data_iter)
+
+            # Multi-view training: randomly select one view
+            images = batch["images"]  # [B, num_cams, H, W, 3]
+            viewmats = batch["viewmats"]  # [B, num_cams, 4, 4]
+            Ks = batch["Ks"]  # [B, num_cams, 3, 3]
+            pose = batch["pose"]  # [B, J*3] or None
+
+            B, num_cams = images.shape[:2]
+            H, W = images.shape[2:4]
+
+            # Random camera selection for this iteration
+            cam_idx = torch.randint(0, num_cams, (B,))
+
+            # Select images and cameras
+            target_images = images[torch.arange(B), cam_idx]  # [B, H, W, 3]
+            viewmat = viewmats[torch.arange(B), cam_idx]  # [B, 4, 4]
+            K = Ks[torch.arange(B), cam_idx]  # [B, 3, 3]
+
+            # Handle missing pose (use random)
+            if pose is None or pose[0] is None:
+                pose = torch.randn(B, self.avatar.body_model.num_joints * 3) * 0.1
+
+            # Training step
+            losses = self.train_step(pose, target_images, viewmat, K, W, H)
+            scheduler.step()
+
+            # Accumulate losses
+            for k, v in losses.items():
+                running_loss[k] += v
+            log_count += 1
+
+            # Update progress bar
+            pbar.set_postfix({
+                "loss": f"{losses['total']:.4f}",
+                "lr": f"{scheduler.get_last_lr()[0]:.2e}",
+            })
+
+            # Logging
+            if (iteration + 1) % log_freq == 0:
+                avg_losses = {k: v / log_count for k, v in running_loss.items()}
+                print(f"\nIter {iteration + 1}: " +
+                      ", ".join(f"{k}={v:.4f}" for k, v in avg_losses.items()))
+                running_loss = {k: 0 for k in running_loss}
+                log_count = 0
+
+            # Visualization
+            if (iteration + 1) % vis_freq == 0:
+                self._save_visualization(
+                    pose[:1], target_images[:1], viewmat[:1], K[:1], W, H,
+                    vis_dir / f"iter_{iteration + 1:06d}.png"
+                )
+
+            # Checkpoint
+            if (iteration + 1) % save_freq == 0:
+                self.save_checkpoint(
+                    checkpoint_dir / f"avatar_iter_{iteration + 1:06d}.pt",
+                    iteration + 1,
+                )
+
+        # Final checkpoint
+        self.save_checkpoint(checkpoint_dir / "avatar_final.pt", num_iterations)
+        print(f"Training complete! Final checkpoint saved to {checkpoint_dir}")
+
+    def _save_visualization(
+        self,
+        pose: torch.Tensor,
+        target_image: torch.Tensor,
+        viewmat: torch.Tensor,
+        K: torch.Tensor,
+        width: int,
+        height: int,
+        save_path,
+    ):
+        """Save visualization comparing prediction and target."""
+        import cv2
+        from pathlib import Path
+
+        self.avatar.eval()
+        with torch.no_grad():
+            gaussian_params = self.avatar(pose.to(self.device))
+            rgb, alpha = self.avatar.render(
+                gaussian_params,
+                viewmat.to(self.device),
+                K.to(self.device),
+                width, height,
+            )
+
+        pred_img = (rgb[0].cpu().numpy() * 255).astype(np.uint8)
+        target_img = (target_image[0].cpu().numpy() * 255).astype(np.uint8)
+
+        # Concatenate side by side: Prediction | Target
+        vis = np.concatenate([pred_img, target_img], axis=1)
+        cv2.imwrite(str(save_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
+
+        self.avatar.train()
+
+    def save_checkpoint(self, path, iteration: int):
+        """Save avatar checkpoint."""
+        from pathlib import Path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+        checkpoint = {
+            "iteration": iteration,
+            "avatar_state_dict": self.avatar.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "config": {
+                "num_vertices": self.avatar.num_vertices,
+                "num_gaussians_per_vertex": self.avatar.num_gaussians_per_vertex,
+                "lambda_ssim": self.lambda_ssim,
+                "lambda_lpips": self.lambda_lpips,
+            }
+        }
+        torch.save(checkpoint, path)
+        print(f"Saved checkpoint to {path}")
+
+    def load_checkpoint(self, path):
+        """Load avatar checkpoint."""
+        checkpoint = torch.load(path, map_location=self.device)
+        self.avatar.load_state_dict(checkpoint["avatar_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        print(f"Loaded checkpoint from {path} (iteration {checkpoint['iteration']})")
+        return checkpoint["iteration"]
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        checkpoint_path: str,
+        body_model,
+        device: torch.device = None,
+    ):
+        """Create trainer from checkpoint."""
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        config = checkpoint["config"]
+
+        avatar = GaussianAvatar(
+            body_model=body_model,
+            num_gaussians_per_vertex=config["num_gaussians_per_vertex"],
+        )
+        avatar.load_state_dict(checkpoint["avatar_state_dict"])
+
+        trainer = cls(
+            avatar=avatar,
+            lambda_ssim=config.get("lambda_ssim", 0.2),
+            lambda_lpips=config.get("lambda_lpips", 0.1),
+            device=device,
+        )
+
+        return trainer, checkpoint["iteration"]
