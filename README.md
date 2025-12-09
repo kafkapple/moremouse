@@ -91,6 +91,14 @@ pip install gsplat --no-cache-dir
 pip install "numpy<2.0" --force-reinstall
 ```
 
+**wandb build fails (missing Go binary)**
+- Cause: Latest wandb tries to build from source
+- Solution: Install specific version with pre-built wheel:
+  ```bash
+  pip install wandb==0.16.6 --only-binary :all:
+  ```
+- Note: wandb is optional - training works without it (use `logging.use_wandb=false`)
+
 ### Data Setup (MAMMAL Mouse Model)
 
 The project uses relative paths by default. Place the MAMMAL_mouse data as a sibling directory:

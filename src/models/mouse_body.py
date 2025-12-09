@@ -23,6 +23,9 @@ def to_tensor(array, dtype: torch.dtype = torch.float32) -> torch.Tensor:
     """Convert numpy array to torch tensor if necessary."""
     if isinstance(array, torch.Tensor):
         return array.to(dtype)
+    # Handle numpy.matrix (from scipy.sparse.todense()) - convert to ndarray first
+    if hasattr(array, 'A'):  # numpy.matrix has .A attribute
+        array = np.asarray(array)
     return torch.tensor(array, dtype=dtype)
 
 

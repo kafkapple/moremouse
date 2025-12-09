@@ -74,7 +74,13 @@ pip install transformers>=4.35.0 timm>=0.9.0
 pip install trimesh>=4.0.0 "pyglet<2" networkx>=3.0 potpourri3d>=0.0.8
 pip install zarr>=2.13.0 h5py>=3.8.0 opencv-python>=4.7.0 Pillow>=9.5.0 imageio>=2.31.0 imageio-ffmpeg>=0.4.8
 pip install torchmetrics>=0.11.0 lpips>=0.1.4
-pip install wandb>=0.15.0 tensorboard>=2.13.0
+
+# wandb: use specific version with pre-built wheel (avoid source build requiring Go)
+pip install wandb==0.16.6 --only-binary :all: || {
+    echo -e "${YELLOW}Warning: wandb installation failed. Training will work without W&B logging.${NC}"
+    echo -e "${YELLOW}To enable wandb later: pip install wandb==0.16.6${NC}"
+}
+pip install tensorboard>=2.13.0
 pip install python-dotenv>=1.0.0 tqdm>=4.65.0 joblib>=1.2.0 einops>=0.7.0 rich>=13.0.0
 
 echo ""
