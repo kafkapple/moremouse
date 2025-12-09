@@ -50,11 +50,9 @@ class GeodesicEmbedding(nn.Module):
             nn.Parameter(torch.randn(num_vertices, embedding_dim) * 0.1)
         )
 
-        # Geodesic distance matrix (computed once, stored as buffer)
-        self.register_buffer(
-            "geodesic_distances",
-            torch.zeros(num_vertices, num_vertices)
-        )
+        # Geodesic distance matrix (computed once, kept on CPU to save GPU memory)
+        # Not registered as buffer - stays on CPU even when module moves to GPU
+        self.geodesic_distances = torch.zeros(num_vertices, num_vertices)
 
         # PCA components for HSV transformation
         self.register_buffer(
@@ -105,7 +103,7 @@ class GeodesicEmbedding(nn.Module):
         else:
             distances = self._compute_graph_distances(vertices, faces)
 
-        # Store as buffer
+        # Store distances (keep on CPU to save GPU memory)
         self.geodesic_distances = torch.from_numpy(distances)
         self._distances_computed = True
 
@@ -295,16 +293,16 @@ class GeodesicEmbedding(nn.Module):
         V = self.num_vertices
         device = self.embedding.device
 
-        # Sample random vertex pairs
-        idx1 = torch.randint(0, V, (sample_size,), device=device)
-        idx2 = torch.randint(0, V, (sample_size,), device=device)
+        # Sample random vertex pairs (on CPU for indexing geodesic_distances)
+        idx1 = torch.randint(0, V, (sample_size,))
+        idx2 = torch.randint(0, V, (sample_size,))
 
-        # Embedding distances
-        E1 = self.embedding[idx1]
-        E2 = self.embedding[idx2]
+        # Embedding distances (move indices to device for embedding lookup)
+        E1 = self.embedding[idx1.to(device)]
+        E2 = self.embedding[idx2.to(device)]
         dist_embedding = torch.norm(E1 - E2, dim=1)
 
-        # Geodesic distances
+        # Geodesic distances (index on CPU, then move to device)
         dist_geodesic = self.geodesic_distances[idx1, idx2].to(device)
 
         if normalize:
