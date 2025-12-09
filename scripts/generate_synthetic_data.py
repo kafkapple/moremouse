@@ -320,7 +320,7 @@ def _generate_split(
             if frame_idx == 0:
                 print(f"Warning: gsplat render failed ({e}), using mesh fallback")
             # Fallback: render mesh vertices as point cloud
-            vertices = gaussian_params["means"][0].cpu().numpy()
+            vertices = gaussian_params["means"][0].detach().cpu().numpy()
             fallback_img = render_mesh_fallback(vertices, viewmat[0].cpu().numpy(), K, image_size)
             cv2.imwrite(str(frame_dir / "input.png"), cv2.cvtColor(fallback_img, cv2.COLOR_RGB2BGR))
 
@@ -339,8 +339,9 @@ def _generate_split(
                 )
             except Exception as e:
                 # Fallback: render mesh vertices
-                vertices = gaussian_params["means"][0].cpu().numpy()
-                fallback_img = render_mesh_fallback(vertices, viewmat[0].cpu().numpy(), K, image_size)
+                vertices = gaussian_params["means"][0].detach().cpu().numpy()
+                vm = torch.from_numpy(vp["viewmat"]).float()
+                fallback_img = render_mesh_fallback(vertices, vm.numpy(), K, image_size)
                 cv2.imwrite(str(frame_dir / f"view_{v_idx:02d}.png"), cv2.cvtColor(fallback_img, cv2.COLOR_RGB2BGR))
 
         # Generate embedding visualization

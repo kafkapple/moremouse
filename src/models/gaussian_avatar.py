@@ -281,6 +281,7 @@ class GaussianAvatar(nn.Module):
             opacities = gaussian_params["opacity"][b]
 
             # Render using gsplat
+            # backgrounds must be [C] or [H, W, C] for gsplat
             render_colors, render_alphas, info = rasterization(
                 means=means,
                 quats=quats,
@@ -291,7 +292,7 @@ class GaussianAvatar(nn.Module):
                 Ks=K[b:b+1],
                 width=width,
                 height=height,
-                backgrounds=torch.ones(1, 3, device=device),
+                backgrounds=torch.ones(3, device=device),  # [C] format
             )
 
             rendered_images.append(render_colors[0])  # [H, W, 3]
