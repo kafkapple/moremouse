@@ -56,7 +56,8 @@ class Trainer:
 
         # Setup mixed precision (AMP)
         self.use_amp = cfg.train.training.mixed_precision and self.device.type == "cuda"
-        self.scaler = torch.amp.GradScaler(device='cuda', enabled=self.use_amp)
+        # PyTorch 2.0.x uses torch.cuda.amp, 2.1+ uses torch.amp
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
         if self.use_amp:
             self.logger.info("Mixed precision training enabled (AMP)")
 
@@ -271,7 +272,7 @@ class Trainer:
             target_embedding = batch["embedding"].to(self.device)
 
             # Forward pass with AMP autocast
-            with torch.amp.autocast(device_type='cuda', enabled=self.use_amp):
+            with torch.cuda.amp.autocast(enabled=self.use_amp):
                 outputs = self.model(
                     input_images,
                     viewmats=viewmats,
@@ -351,7 +352,7 @@ class Trainer:
                 Ks = batch["K"].to(self.device)
 
                 # Forward pass with AMP autocast
-                with torch.amp.autocast(device_type='cuda', enabled=self.use_amp):
+                with torch.cuda.amp.autocast(enabled=self.use_amp):
                     outputs = self.model(
                         input_images,
                         viewmats=viewmats,

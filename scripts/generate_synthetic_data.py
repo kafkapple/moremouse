@@ -117,6 +117,59 @@ def sample_viewpoints(
     return viewpoints
 
 
+def render_mesh_fallback(
+    vertices: np.ndarray,
+    viewmat: np.ndarray,
+    K: np.ndarray,
+    image_size: int,
+) -> np.ndarray:
+    """
+    Simple fallback renderer: project vertices to 2D and draw as points.
+    Used when gsplat is unavailable or fails.
+
+    Args:
+        vertices: [N, 3] mesh vertices
+        viewmat: [4, 4] view matrix
+        K: [3, 3] camera intrinsics
+        image_size: Output image size
+
+    Returns:
+        [H, W, 3] rendered image (uint8)
+    """
+    import cv2
+
+    # Transform to camera space
+    R = viewmat[:3, :3]
+    t = viewmat[:3, 3]
+    verts_cam = (R @ vertices.T).T + t  # [N, 3]
+
+    # Filter points in front of camera
+    valid = verts_cam[:, 2] > 0.1
+    verts_cam = verts_cam[valid]
+
+    if len(verts_cam) == 0:
+        return np.ones((image_size, image_size, 3), dtype=np.uint8) * 200  # Light gray
+
+    # Project to image
+    verts_proj = (K @ verts_cam.T).T  # [N, 3]
+    verts_2d = verts_proj[:, :2] / verts_proj[:, 2:3]  # [N, 2]
+
+    # Create image (light gray background for mouse)
+    img = np.ones((image_size, image_size, 3), dtype=np.uint8) * 240
+
+    # Draw vertices as points (brown/gray for mouse fur)
+    for x, y in verts_2d:
+        ix, iy = int(x), int(y)
+        if 0 <= ix < image_size and 0 <= iy < image_size:
+            # Mouse fur color: brownish gray
+            img[iy, ix] = [139, 119, 101]  # RGB
+
+    # Apply slight blur to soften
+    img = cv2.GaussianBlur(img, (3, 3), 0)
+
+    return img
+
+
 def generate_data(
     output_dir: Path,
     mouse_model_path: Path,
@@ -263,9 +316,13 @@ def _generate_split(
             input_img = (input_img * 255).astype(np.uint8)
             cv2.imwrite(str(frame_dir / "input.png"), cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR))
         except Exception as e:
-            # Fallback: save placeholder
-            placeholder = np.zeros((image_size, image_size, 3), dtype=np.uint8)
-            cv2.imwrite(str(frame_dir / "input.png"), placeholder)
+            # Log error and save fallback mesh rendering
+            if frame_idx == 0:
+                print(f"Warning: gsplat render failed ({e}), using mesh fallback")
+            # Fallback: render mesh vertices as point cloud
+            vertices = gaussian_params["means"][0].cpu().numpy()
+            fallback_img = render_mesh_fallback(vertices, viewmat[0].cpu().numpy(), K, image_size)
+            cv2.imwrite(str(frame_dir / "input.png"), cv2.cvtColor(fallback_img, cv2.COLOR_RGB2BGR))
 
         # Render target views
         for v_idx, vp in enumerate(viewpoints):
@@ -281,8 +338,10 @@ def _generate_split(
                     cv2.cvtColor(view_img, cv2.COLOR_RGB2BGR)
                 )
             except Exception as e:
-                placeholder = np.zeros((image_size, image_size, 3), dtype=np.uint8)
-                cv2.imwrite(str(frame_dir / f"view_{v_idx:02d}.png"), placeholder)
+                # Fallback: render mesh vertices
+                vertices = gaussian_params["means"][0].cpu().numpy()
+                fallback_img = render_mesh_fallback(vertices, viewmat[0].cpu().numpy(), K, image_size)
+                cv2.imwrite(str(frame_dir / f"view_{v_idx:02d}.png"), cv2.cvtColor(fallback_img, cv2.COLOR_RGB2BGR))
 
         # Generate embedding visualization
         if geo_embedding is not None:
