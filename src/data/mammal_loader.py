@@ -523,14 +523,20 @@ class MAMMALMultiviewDataset(Dataset):
             viewmats.append(np.array(cam_params["viewmat"]))
             Ks.append(np.array(cam_params["K"]))
 
-        # Load pose
+        # Load pose (return empty tensor if not available)
         pose = self._load_pose(frame_idx)
+        if pose is not None:
+            pose_tensor = torch.from_numpy(pose).float()
+        else:
+            # Default: empty pose tensor (will use T-pose)
+            pose_tensor = torch.zeros(140 * 3, dtype=torch.float32)  # 140 joints * 3
 
         return {
             "images": torch.from_numpy(np.stack(images)),  # [C, H, W, 3]
             "viewmats": torch.from_numpy(np.stack(viewmats)).float(),  # [C, 4, 4]
             "Ks": torch.from_numpy(np.stack(Ks)).float(),  # [C, 3, 3]
-            "pose": torch.from_numpy(pose).float() if pose is not None else None,
+            "pose": pose_tensor,
+            "has_pose": pose is not None,  # Flag to indicate if pose was loaded
             "frame_idx": frame_idx,
         }
 
