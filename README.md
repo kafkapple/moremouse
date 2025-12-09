@@ -33,21 +33,62 @@ Input Image → DINOv2 Encoder → Triplane Generator → NeRF/DMTet Renderer �
 ### Requirements
 - Python 3.10+
 - PyTorch 2.0.1 with CUDA 11.8
-- NVIDIA GPU with 8GB+ VRAM
+- NVIDIA GPU with 16GB+ VRAM (training), 8GB+ (inference)
 
-### Setup
+### Quick Setup (Recommended)
 
 ```bash
 # Clone repository
 git clone https://github.com/kafkapple/moremouse.git
 cd moremouse
 
-# Create conda environment
-conda env create -f environment.yml
+# Run installation script (handles correct package order)
+chmod +x scripts/install.sh
+./scripts/install.sh
+```
+
+### Manual Setup
+
+If the installation script fails, install packages in this order:
+
+```bash
+# 1. Create conda environment
+conda create -n moremouse python=3.10 -y
 conda activate moremouse
 
-# Install additional dependencies if needed
+# 2. Install PyTorch FIRST (required before torch-scatter/kaolin)
+conda install pytorch=2.0.1 torchvision=0.15.2 torchaudio=2.0.2 pytorch-cuda=11.8 -c pytorch -c nvidia -y
+
+# 3. Install torch-scatter (pre-built wheel for PyTorch 2.0 + CUDA 11.8)
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu118.html
+
+# 4. Install kaolin (pre-built wheel, required for DMTet stage)
 pip install kaolin==0.15.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.0.1_cu118.html
+
+# 5. Install remaining dependencies
+pip install gsplat hydra-core omegaconf transformers timm
+pip install trimesh "pyglet<2" networkx potpourri3d
+pip install opencv-python lpips einops tqdm rich
+```
+
+### Troubleshooting
+
+**torch-scatter build fails (`ModuleNotFoundError: torch`)**
+- Cause: PyTorch not installed before torch-scatter
+- Solution: Install from pre-built wheel:
+  ```bash
+  pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu118.html
+  ```
+
+**gsplat CUDA compilation fails**
+```bash
+export CUDA_HOME=/usr/local/cuda-11.8
+pip install gsplat --no-cache-dir
+```
+
+**NumPy version conflict**
+```bash
+pip install "numpy<2.0" --force-reinstall
 ```
 
 ### Data Setup (MAMMAL Mouse Model)
