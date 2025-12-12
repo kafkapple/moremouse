@@ -40,7 +40,7 @@ def detect_environment() -> str:
     # Check known patterns
     if 'gpu05' in hostname or 'dlbox' in hostname:
         return 'gpu05'
-    elif 'joon-dell' in hostname or 'dell' in hostname:
+    elif 'joon-dell' in hostname or 'dell' in hostname or 'bori' in hostname:
         return 'local'
 
     # Fallback to default

@@ -6,6 +6,7 @@ environment: local
 hostname_patterns:
   - joon-dell
   - dell
+  - bori
 
 # Data paths (local development - TODO: set up data sync)
 # Option 1: Mount gpu05 data via sshfs
