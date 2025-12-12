@@ -534,6 +534,7 @@ class GaussianAvatarTrainer:
         trans: torch.Tensor = None,
         scale: torch.Tensor = None,
         world_scale: float = 1.0,
+        world_trans: torch.Tensor = None,
     ) -> Dict[str, float]:
         """
         Single training step with full loss function.
@@ -547,26 +548,31 @@ class GaussianAvatarTrainer:
             Ks: [B, 3, 3] intrinsics
             width: Image width
             height: Image height
-            trans: [B, 3] global translation (from MAMMAL)
+            trans: [B, 3] global translation in model space (not used currently)
             scale: [B, 1] global scale (from MAMMAL)
             world_scale: float, scale factor to convert model coords to world coords (e.g., 100 for mm)
+            world_trans: [B, 3] global translation in world coords (from center_rotation.npz)
 
         Returns:
             Dictionary of loss values
         """
         self.optimizer.zero_grad()
 
-        # Forward pass with global transform
+        # Forward pass (no trans here - we apply world_trans after scaling)
         gaussian_params = self.avatar(
             pose.to(self.device),
-            trans=trans.to(self.device) if trans is not None else None,
+            trans=None,  # Don't apply trans in model space
             scale=scale.to(self.device) if scale is not None else None,
         )
 
-        # Apply world_scale to Gaussian means (convert from model coords to camera coords)
+        # Apply world_scale to Gaussian means (convert from model coords to world coords)
         if world_scale != 1.0:
             gaussian_params["means"] = gaussian_params["means"] * world_scale
             gaussian_params["scales"] = gaussian_params["scales"] * world_scale
+
+        # Apply world translation AFTER scaling (center is already in world coords)
+        if world_trans is not None:
+            gaussian_params["means"] = gaussian_params["means"] + world_trans.to(self.device).unsqueeze(1)
         rgb, alpha = self.avatar.render(
             gaussian_params,
             viewmats.to(self.device),
@@ -755,24 +761,24 @@ class GaussianAvatarTrainer:
             if pose is None or pose[0] is None:
                 pose = torch.randn(B, self.avatar.body_model.num_joints * 3) * 0.1
 
-            # Extract trans and scale from global_transform or mammal_global
-            trans = None
-            scale = None
-            # Check if global_transform is valid (has 'valid' flag = True)
+            # Extract world_trans from global_transform (center_rotation.npz)
+            # This is the 3D position in world coordinates (meters)
+            world_trans = None
             gt_valid = global_transform.get("valid", torch.tensor(False)) if global_transform is not None else torch.tensor(False)
             if isinstance(gt_valid, torch.Tensor):
                 gt_valid = gt_valid.any().item() if gt_valid.dim() > 0 else gt_valid.item()
 
             if gt_valid and global_transform.get("center") is not None:
-                # Use center from center_rotation.npz
+                # Use center from center_rotation.npz as world translation
                 center = global_transform["center"]
-                trans = center.unsqueeze(0) if center.dim() == 1 else center
+                world_trans = center.unsqueeze(0) if center.dim() == 1 else center
             # Note: mammal_global T is in pixel coords, not directly usable for 3D translation
 
-            # Training step with world_scale
+            # Training step with world_scale and world_trans
             losses = self.train_step(
                 pose, target_images, viewmat, K, W, H,
-                trans=trans, scale=scale, world_scale=self._world_scale
+                trans=None, scale=None, world_scale=self._world_scale,
+                world_trans=world_trans
             )
             scheduler.step()
 
@@ -803,8 +809,7 @@ class GaussianAvatarTrainer:
                 self._save_visualization(
                     pose[:1], target_images[:1], viewmat[:1], K[:1], W, H,
                     vis_dir / f"iter_{iteration + 1:06d}.png",
-                    trans=trans[:1] if trans is not None else None,
-                    scale=scale[:1] if scale is not None else None,
+                    world_trans=world_trans[:1] if world_trans is not None else None,
                 )
 
             # Checkpoint
@@ -827,8 +832,7 @@ class GaussianAvatarTrainer:
         width: int,
         height: int,
         save_path,
-        trans: torch.Tensor = None,
-        scale: torch.Tensor = None,
+        world_trans: torch.Tensor = None,
     ):
         """Save visualization comparing prediction and target with keypoint overlay."""
         import cv2
@@ -840,8 +844,8 @@ class GaussianAvatarTrainer:
         with torch.no_grad():
             gaussian_params = self.avatar(
                 pose.to(self.device),
-                trans=trans.to(self.device) if trans is not None else None,
-                scale=scale.to(self.device) if scale is not None else None,
+                trans=None,  # Don't apply trans in model space
+                scale=None,
             )
 
             # Get joint positions from body model (after forward pass)
@@ -852,6 +856,12 @@ class GaussianAvatarTrainer:
                 gaussian_params["means"] = gaussian_params["means"] * world_scale
                 gaussian_params["scales"] = gaussian_params["scales"] * world_scale
                 joints_3d = joints_3d * world_scale
+
+            # Apply world translation AFTER scaling (same as train_step)
+            if world_trans is not None:
+                world_trans_device = world_trans.to(self.device)
+                gaussian_params["means"] = gaussian_params["means"] + world_trans_device.unsqueeze(1)
+                joints_3d = joints_3d + world_trans_device.unsqueeze(1)
 
             rgb, alpha = self.avatar.render(
                 gaussian_params,
