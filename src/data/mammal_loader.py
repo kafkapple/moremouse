@@ -125,10 +125,12 @@ class MAMMALMultiviewDataset(Dataset):
         image_size: int = 800,
         cameras: Optional[List[int]] = None,
         pose_dir: Optional[Union[str, Path]] = None,
+        require_pose: bool = True,  # Only use frames with valid pose data
     ):
         self.data_dir = Path(data_dir)
         self.image_size = image_size
         self._explicit_pose_dir = Path(pose_dir) if pose_dir else None
+        self.require_pose = require_pose
 
         # Detect data format (video or image)
         self.use_video = self._detect_video_format()
@@ -154,6 +156,11 @@ class MAMMALMultiviewDataset(Dataset):
                     frame_start,
                     min(frame_end or max_frames, max_frames)
                 ))
+
+                # Filter to frames with pose data if required
+                if require_pose and self.pose_dir is not None:
+                    self.frames = self._filter_frames_with_pose(self.frames)
+
                 if num_frames is not None:
                     self.frames = self.frames[:num_frames]
             else:
@@ -285,6 +292,38 @@ class MAMMALMultiviewDataset(Dataset):
 
         print("Warning: Pose directory not found. Using None poses.")
         return None
+
+    def _filter_frames_with_pose(self, frames: List[int]) -> List[int]:
+        """Filter frames to only those that have corresponding pose files.
+
+        Args:
+            frames: List of frame indices to filter
+
+        Returns:
+            List of frame indices that have valid pose files
+        """
+        if self.pose_dir is None:
+            return frames
+
+        valid_frames = []
+        for frame_idx in frames:
+            # Check if pose file exists for this frame
+            # Using same pattern as _load_pose()
+            patterns = [
+                f"frame_{frame_idx:04d}_params.pkl",  # MAMMAL results format
+                f"pose_{frame_idx:06d}.pkl",
+                f"pose_{frame_idx:04d}.pkl",
+            ]
+            for pattern in patterns:
+                if (self.pose_dir / pattern).exists():
+                    valid_frames.append(frame_idx)
+                    break
+
+        original_count = len(frames)
+        filtered_count = len(valid_frames)
+        print(f"Filtered frames with pose: {filtered_count}/{original_count} frames have pose data")
+
+        return valid_frames
 
     def _load_global_transform(self) -> Optional[Dict]:
         """Load global transform data from center_rotation.npz.
