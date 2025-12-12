@@ -343,6 +343,60 @@ class MouseBodyModel(nn.Module):
         return self._has_uv
 
     @staticmethod
+    def axis_angle_to_rotation_matrix(axis_angle: torch.Tensor) -> torch.Tensor:
+        """
+        Convert axis-angle (Rodrigues) to rotation matrices.
+
+        This is the format used by MAMMAL pose estimation.
+
+        Args:
+            axis_angle: [N, 1, 3] or [N, 3] tensor of axis-angle rotations
+
+        Returns:
+            Rotation matrices [N, 3, 3]
+        """
+        if axis_angle.dim() == 3:
+            axis_angle = axis_angle.squeeze(1)  # [N, 3]
+
+        # Rodrigues formula: R = I + sin(θ)K + (1-cos(θ))K²
+        # where K is the skew-symmetric matrix of the unit axis
+        theta = axis_angle.norm(dim=-1, keepdim=True)  # [N, 1]
+        axis = axis_angle / (theta + 1e-8)  # [N, 3] unit axis
+
+        # Handle small angles (avoid division by zero)
+        small_angle = theta.squeeze(-1) < 1e-6
+
+        # Skew-symmetric matrix K
+        N = axis_angle.shape[0]
+        device = axis_angle.device
+        dtype = axis_angle.dtype
+
+        x, y, z = axis[:, 0], axis[:, 1], axis[:, 2]
+        zeros = torch.zeros(N, dtype=dtype, device=device)
+
+        K = torch.stack([
+            zeros, -z, y,
+            z, zeros, -x,
+            -y, x, zeros
+        ], dim=1).reshape(N, 3, 3)
+
+        # K²
+        K2 = torch.bmm(K, K)
+
+        # Rodrigues formula
+        sin_theta = torch.sin(theta).unsqueeze(-1)  # [N, 1, 1]
+        cos_theta = torch.cos(theta).unsqueeze(-1)  # [N, 1, 1]
+
+        eye = torch.eye(3, dtype=dtype, device=device).unsqueeze(0).expand(N, -1, -1)
+        R = eye + sin_theta * K + (1 - cos_theta) * K2
+
+        # For small angles, use Taylor expansion: R ≈ I + K
+        R_small = eye + K
+        R = torch.where(small_angle.view(N, 1, 1), R_small, R)
+
+        return R
+
+    @staticmethod
     def euler_to_rotation_matrix(euler_angles: torch.Tensor) -> torch.Tensor:
         """
         Convert Euler angles (ZYX convention) to rotation matrices.
@@ -497,16 +551,18 @@ class MouseBodyModel(nn.Module):
         center_bone_length: torch.Tensor = None,
         trans: torch.Tensor = None,
         scale: torch.Tensor = None,
+        pose_format: str = "axis_angle",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward LBS to compute posed vertices and joints.
 
         Args:
-            pose: [B, J*3] Euler angles for all joints
+            pose: [B, J*3] rotation parameters for all joints
             bone_lengths: [B, 28] bone length parameters (default: zeros)
             center_bone_length: [B, 1] center bone scale (default: ones)
             trans: [B, 3] global translation (default: zeros)
             scale: [B, 1] global scale (default: ones)
+            pose_format: "axis_angle" (MAMMAL default) or "euler" (ZYX Euler angles)
 
         Returns:
             V: [B, V, 3] posed vertices
@@ -533,7 +589,12 @@ class MouseBodyModel(nn.Module):
 
         # Compute rotation matrices from pose
         pose_reshaped = pose.view(-1, 1, 3)  # [B*J, 1, 3]
-        local_rotations = self.euler_to_rotation_matrix(pose_reshaped)
+        if pose_format == "axis_angle":
+            # MAMMAL uses axis-angle (Rodrigues) format
+            local_rotations = self.axis_angle_to_rotation_matrix(pose_reshaped)
+        else:
+            # Legacy Euler angle format
+            local_rotations = self.euler_to_rotation_matrix(pose_reshaped)
         local_rotations = local_rotations.view(B, self.num_joints, 3, 3)
 
         # Compute global transforms
