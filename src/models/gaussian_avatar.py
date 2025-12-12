@@ -770,7 +770,9 @@ class GaussianAvatarTrainer:
 
             if gt_valid and global_transform.get("center") is not None:
                 # Use center from center_rotation.npz as world translation
-                center = global_transform["center"]
+                # center_rotation.npz is in meters, camera coords are in cm
+                # So we need to convert: meters * 100 = cm
+                center = global_transform["center"] * 100.0  # m -> cm
                 world_trans = center.unsqueeze(0) if center.dim() == 1 else center
             # Note: mammal_global T is in pixel coords, not directly usable for 3D translation
 
