@@ -74,6 +74,7 @@ def train_avatar(args):
         num_frames=args.avatar_frames,
         image_size=args.avatar_image_size,  # Paper: 800x800 for avatar
         pose_dir=args.pose_dir,  # MAMMAL pose estimation results
+        require_pose=True,  # Only load frames with valid non-zero pose data
     )
 
     # Train (with auto-resume support)

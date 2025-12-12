@@ -294,34 +294,41 @@ class MAMMALMultiviewDataset(Dataset):
         return None
 
     def _filter_frames_with_pose(self, frames: List[int]) -> List[int]:
-        """Filter frames to only those that have corresponding pose files.
+        """Filter frames to only those that have valid (non-zero) pose data.
 
         Args:
             frames: List of frame indices to filter
 
         Returns:
-            List of frame indices that have valid pose files
+            List of frame indices that have valid pose files with non-zero values
         """
         if self.pose_dir is None:
             return frames
 
         valid_frames = []
+        zero_pose_count = 0
+
         for frame_idx in frames:
-            # Check if pose file exists for this frame
-            # Using same pattern as _load_pose()
-            patterns = [
-                f"frame_{frame_idx:04d}_params.pkl",  # MAMMAL results format
-                f"pose_{frame_idx:06d}.pkl",
-                f"pose_{frame_idx:04d}.pkl",
-            ]
-            for pattern in patterns:
-                if (self.pose_dir / pattern).exists():
+            # Load pose and check if it has non-zero values
+            pose_data = self._load_pose(frame_idx)
+            if pose_data is not None and 'thetas' in pose_data:
+                thetas = pose_data['thetas']
+                # Check if pose has meaningful values (not all zeros)
+                if isinstance(thetas, np.ndarray):
+                    nonzero = (np.abs(thetas) > 0.01).sum()
+                else:
+                    nonzero = (thetas.abs() > 0.01).sum().item()
+
+                if nonzero > 0:
                     valid_frames.append(frame_idx)
-                    break
+                else:
+                    zero_pose_count += 1
 
         original_count = len(frames)
         filtered_count = len(valid_frames)
-        print(f"Filtered frames with pose: {filtered_count}/{original_count} frames have pose data")
+        print(f"Filtered frames with pose: {filtered_count}/{original_count} frames have valid pose data")
+        if zero_pose_count > 0:
+            print(f"  (Skipped {zero_pose_count} frames with zero pose values)")
 
         return valid_frames
 
