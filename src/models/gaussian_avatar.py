@@ -999,10 +999,17 @@ class GaussianAvatarTrainer:
 
         return panel
 
-    def save_checkpoint(self, path, iteration: int):
-        """Save avatar checkpoint."""
+    def save_checkpoint(self, path, iteration: int, keep_last: int = 3):
+        """Save avatar checkpoint and keep only the last N checkpoints.
+
+        Args:
+            path: Path to save checkpoint
+            iteration: Current iteration number
+            keep_last: Number of recent checkpoints to keep (default: 3)
+        """
         from pathlib import Path
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_dir = Path(path).parent
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint = {
             "iteration": iteration,
@@ -1023,6 +1030,18 @@ class GaussianAvatarTrainer:
         }
         torch.save(checkpoint, path)
         print(f"Saved checkpoint to {path}")
+
+        # Clean up old checkpoints (keep only last N iteration checkpoints)
+        # Exclude 'avatar_final.pt' from deletion
+        iter_checkpoints = sorted(
+            checkpoint_dir.glob("avatar_iter_*.pt"),
+            key=lambda p: int(p.stem.split("_")[-1])  # Sort by iteration number
+        )
+
+        if len(iter_checkpoints) > keep_last:
+            for old_ckpt in iter_checkpoints[:-keep_last]:
+                old_ckpt.unlink()
+                print(f"Removed old checkpoint: {old_ckpt.name}")
 
     def load_checkpoint(self, path):
         """Load avatar checkpoint."""
