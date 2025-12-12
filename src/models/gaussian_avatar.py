@@ -751,13 +751,16 @@ class GaussianAvatarTrainer:
             # Extract trans and scale from global_transform or mammal_global
             trans = None
             scale = None
-            if global_transform is not None and global_transform.get("center") is not None:
+            # Check if global_transform is valid (has 'valid' flag = True)
+            gt_valid = global_transform.get("valid", torch.tensor(False)) if global_transform is not None else torch.tensor(False)
+            if isinstance(gt_valid, torch.Tensor):
+                gt_valid = gt_valid.any().item() if gt_valid.dim() > 0 else gt_valid.item()
+
+            if gt_valid and global_transform.get("center") is not None:
                 # Use center from center_rotation.npz
-                trans = global_transform["center"].unsqueeze(0) if global_transform["center"].dim() == 1 else global_transform["center"]
-            elif mammal_global is not None and mammal_global.get("T") is not None:
-                # Note: MAMMAL T is in pixel coords, may not be directly usable
-                # For now, skip using it for translation
-                pass
+                center = global_transform["center"]
+                trans = center.unsqueeze(0) if center.dim() == 1 else center
+            # Note: mammal_global T is in pixel coords, not directly usable for 3D translation
 
             # Training step with world_scale
             losses = self.train_step(

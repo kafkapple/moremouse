@@ -705,14 +705,45 @@ class MAMMALMultiviewDataset(Dataset):
         # Load global transform (center position and rotation)
         global_trans = self._get_global_transform(frame_idx)
 
+        # Convert None to placeholder tensors for DataLoader collate compatibility
+        # mammal_global: R (3,), T (3,), s (scalar)
+        if mammal_global is None:
+            mammal_global_out = {
+                'R': torch.zeros(3, dtype=torch.float32),
+                'T': torch.zeros(3, dtype=torch.float32),
+                's': torch.tensor(0.0, dtype=torch.float32),
+                'valid': torch.tensor(False),
+            }
+        else:
+            mammal_global_out = {
+                'R': mammal_global['R'],
+                'T': mammal_global['T'],
+                's': mammal_global['s'] if isinstance(mammal_global['s'], torch.Tensor) else torch.tensor(mammal_global['s'], dtype=torch.float32),
+                'valid': torch.tensor(True),
+            }
+
+        # global_transform: center (3,), angle (scalar)
+        if global_trans is None:
+            global_trans_out = {
+                'center': torch.zeros(3, dtype=torch.float32),
+                'angle': torch.tensor(0.0, dtype=torch.float32),
+                'valid': torch.tensor(False),
+            }
+        else:
+            global_trans_out = {
+                'center': global_trans['center'],
+                'angle': global_trans['angle'],
+                'valid': torch.tensor(True),
+            }
+
         return {
             "images": torch.from_numpy(np.stack(images)),  # [C, H, W, 3]
             "viewmats": torch.from_numpy(np.stack(viewmats)).float(),  # [C, 4, 4]
             "Ks": torch.from_numpy(np.stack(Ks)).float(),  # [C, 3, 3]
             "pose": pose_tensor,  # [140*3] flattened axis-angle rotations
             "has_pose": has_pose,  # Flag to indicate if pose was loaded
-            "mammal_global": mammal_global,  # Dict with R, T, s from MAMMAL fitting
-            "global_transform": global_trans,  # Dict with center, angle from center_rotation.npz
+            "mammal_global": mammal_global_out,  # Dict with R, T, s, valid from MAMMAL fitting
+            "global_transform": global_trans_out,  # Dict with center, angle, valid from center_rotation.npz
             "frame_idx": frame_idx,
         }
 
