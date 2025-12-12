@@ -1,0 +1,30 @@
+# MoReMouse Default Configuration
+# Environment-specific settings can override these values
+
+# Training settings
+training:
+  avatar_iterations: 400000
+  avatar_lr: 1e-3
+  avatar_frames: 800
+  avatar_image_size: 800
+  moremouse_image_size: 378
+  gaussians_per_vertex: 1
+  batch_size: 4
+  num_workers: 4
+
+  # Checkpoint frequency
+  save_freq: 10000
+  vis_freq: 1000
+
+# Model settings
+model:
+  num_joints: 140
+
+# Synthetic data generation
+synthetic:
+  num_frames: 1000
+  num_views: 64
+
+# Logging
+logging:
+  use_wandb: false

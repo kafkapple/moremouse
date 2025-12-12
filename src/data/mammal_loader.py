@@ -670,9 +670,9 @@ class MAMMALMultiviewDataset(Dataset):
 
         # Load pose (return empty tensor if not available)
         pose_data = self._load_pose(frame_idx)
-        has_pose = pose_data is not None
+        has_pose = pose_data is not None and 'thetas' in pose_data
 
-        if has_pose and 'thetas' in pose_data:
+        if has_pose:
             thetas = pose_data['thetas']  # (140, 3) axis-angle
             if isinstance(thetas, np.ndarray):
                 pose_tensor = torch.from_numpy(thetas).float().reshape(-1)  # flatten to (420,)
@@ -685,10 +685,16 @@ class MAMMALMultiviewDataset(Dataset):
                 T_global = pose_data['T']  # (3,) translation
                 scale = pose_data.get('s', 1.0)  # scale factor
 
+                # Handle None or invalid scale
+                if scale is None:
+                    scale = 1.0
+
                 if isinstance(R_global, np.ndarray):
                     R_global = torch.from_numpy(R_global).float()
+                if isinstance(T_global, np.ndarray):
                     T_global = torch.from_numpy(T_global).float()
-                    scale = torch.tensor(scale, dtype=torch.float32)
+                if not isinstance(scale, torch.Tensor):
+                    scale = torch.tensor(float(scale), dtype=torch.float32)
 
                 mammal_global = {
                     'R': R_global,
@@ -711,14 +717,18 @@ class MAMMALMultiviewDataset(Dataset):
             mammal_global_out = {
                 'R': torch.zeros(3, dtype=torch.float32),
                 'T': torch.zeros(3, dtype=torch.float32),
-                's': torch.tensor(0.0, dtype=torch.float32),
+                's': torch.tensor(1.0, dtype=torch.float32),  # default scale 1.0
                 'valid': torch.tensor(False),
             }
         else:
+            # Ensure all values are tensors
+            R = mammal_global['R'] if isinstance(mammal_global['R'], torch.Tensor) else torch.from_numpy(mammal_global['R']).float()
+            T = mammal_global['T'] if isinstance(mammal_global['T'], torch.Tensor) else torch.from_numpy(mammal_global['T']).float()
+            s = mammal_global['s'] if isinstance(mammal_global['s'], torch.Tensor) else torch.tensor(float(mammal_global['s']), dtype=torch.float32)
             mammal_global_out = {
-                'R': mammal_global['R'],
-                'T': mammal_global['T'],
-                's': mammal_global['s'] if isinstance(mammal_global['s'], torch.Tensor) else torch.tensor(mammal_global['s'], dtype=torch.float32),
+                'R': R,
+                'T': T,
+                's': s,
                 'valid': torch.tensor(True),
             }
 
@@ -741,10 +751,10 @@ class MAMMALMultiviewDataset(Dataset):
             "viewmats": torch.from_numpy(np.stack(viewmats)).float(),  # [C, 4, 4]
             "Ks": torch.from_numpy(np.stack(Ks)).float(),  # [C, 3, 3]
             "pose": pose_tensor,  # [140*3] flattened axis-angle rotations
-            "has_pose": has_pose,  # Flag to indicate if pose was loaded
+            "has_pose": torch.tensor(has_pose),  # Flag to indicate if pose was loaded
             "mammal_global": mammal_global_out,  # Dict with R, T, s, valid from MAMMAL fitting
             "global_transform": global_trans_out,  # Dict with center, angle, valid from center_rotation.npz
-            "frame_idx": frame_idx,
+            "frame_idx": torch.tensor(frame_idx),  # Convert to tensor for collate
         }
 
 

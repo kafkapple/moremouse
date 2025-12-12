@@ -1,0 +1,42 @@
+# MoReMouse Configuration for Local Development (joon-dell)
+# Inherits from default.yaml
+
+# Environment identifier
+environment: local
+hostname_patterns:
+  - joon-dell
+  - dell
+
+# Data paths (local development - TODO: set up data sync)
+# Option 1: Mount gpu05 data via sshfs
+# Option 2: Sync subset of data locally
+# Option 3: Use synthetic/mock data for testing
+paths:
+  # Multi-view data - needs to be synced or mounted
+  # Example sshfs mount: sshfs gpu05:/home/joon/data ~/mnt/gpu05_data
+  data_dir: ~/mnt/gpu05_data/markerless_mouse_1_nerf
+
+  # Mouse body model - copy locally or mount
+  mouse_model: ~/mnt/gpu05_data/MAMMAL_mouse/mouse_model
+
+  # MAMMAL pose results
+  pose_dir: ~/mnt/gpu05_data/MAMMAL_mouse/results/monocular/mouse_batch_20251125_132606_mouse_1
+
+  # Output directories (local)
+  checkpoint_dir: checkpoints/avatar
+  vis_dir: outputs/avatar_vis
+  synthetic_output: data/synthetic
+
+# Device settings (local GPU)
+device: cuda:0
+
+# CUDA settings
+cuda:
+  home: /usr/local/cuda
+  visible_devices: "0"
+
+# Local-specific overrides
+training:
+  # Use smaller settings for local testing/debugging
+  num_workers: 2
+  avatar_frames: 100  # Smaller subset for testing

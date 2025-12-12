@@ -31,6 +31,9 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
+# Import config utilities
+from src.utils.config import load_config, get_paths, detect_environment
+
 
 def train_avatar(args):
     """Stage 1: Train Gaussian Avatar on multi-view images."""
@@ -281,6 +284,14 @@ def visualize(args):
 
 
 def main():
+    # Load environment-specific config
+    env = detect_environment()
+    config = load_config(env)
+    paths = config.get('paths', {})
+    training_config = config.get('training', {})
+
+    print(f"[Config] Detected environment: {env}")
+
     parser = argparse.ArgumentParser(description="MoReMouse Full Pipeline")
 
     # Stage selection
@@ -288,20 +299,18 @@ def main():
                        choices=["all", "avatar", "synthetic", "train", "evaluate", "visualize"],
                        help="Pipeline stage to run")
 
-    # Common args
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--image-size", type=int, default=378,
+    # Common args (defaults from config)
+    parser.add_argument("--device", type=str, default=config.get('device', 'cuda:0'))
+    parser.add_argument("--image-size", type=int, default=training_config.get('moremouse_image_size', 378),
                        help="Image size for MoReMouse training (378 for paper)")
-    parser.add_argument("--avatar-image-size", type=int, default=800,
+    parser.add_argument("--avatar-image-size", type=int, default=training_config.get('avatar_image_size', 800),
                        help="Image size for avatar training (800 for paper)")
-    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--num-workers", type=int, default=training_config.get('num_workers', 4))
 
-    # Data paths (gpu05 server)
-    # Video format: /home/joon/data/markerless_mouse_1_nerf/videos_undist/
-    # Image format: /home/joon/data/markerless_mouse/mouse1/
-    parser.add_argument("--data-dir", type=str, default="/home/joon/data/markerless_mouse_1_nerf")
-    parser.add_argument("--mouse-model", type=str, default="/home/joon/MAMMAL_mouse/mouse_model")
-    parser.add_argument("--pose-dir", type=str, default="/home/joon/MAMMAL_mouse/results/monocular/mouse_batch_20251125_132606_mouse_1",
+    # Data paths (auto-detected from environment config)
+    parser.add_argument("--data-dir", type=str, default=paths.get('data_dir', '/home/joon/data/markerless_mouse_1_nerf'))
+    parser.add_argument("--mouse-model", type=str, default=paths.get('mouse_model', '/home/joon/MAMMAL_mouse/mouse_model'))
+    parser.add_argument("--pose-dir", type=str, default=paths.get('pose_dir', '/home/joon/MAMMAL_mouse/results/monocular/mouse_batch_20251125_132606_mouse_1'),
                        help="MAMMAL pose estimation results directory (100 frames)")
 
     # Avatar training

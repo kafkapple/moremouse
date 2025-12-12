@@ -1,0 +1,32 @@
+# MoReMouse Configuration for gpu05 Server
+# Inherits from default.yaml
+
+# Environment identifier
+environment: gpu05
+hostname_patterns:
+  - gpu05
+  - dlbox
+
+# Data paths (gpu05 server structure)
+paths:
+  # Multi-view data (MAMMAL nerf format with videos)
+  data_dir: /home/joon/data/markerless_mouse_1_nerf
+
+  # Mouse body model
+  mouse_model: /home/joon/MAMMAL_mouse/mouse_model
+
+  # MAMMAL pose estimation results (100 frames)
+  pose_dir: /home/joon/MAMMAL_mouse/results/monocular/mouse_batch_20251125_132606_mouse_1
+
+  # Output directories
+  checkpoint_dir: checkpoints/avatar
+  vis_dir: outputs/avatar_vis
+  synthetic_output: data/synthetic
+
+# Device settings
+device: cuda:0
+
+# CUDA settings (gpu05 has CUDA 11.8 with RTX 3090)
+cuda:
+  home: /usr/local/cuda-11.8
+  visible_devices: "0"  # Use GPU 0 by default
