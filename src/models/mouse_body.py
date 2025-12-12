@@ -131,6 +131,32 @@ class MouseBodyModel(nn.Module):
         else:
             self.faces_reduced = self.faces
 
+        # Load UV coordinates and UV face indices
+        uv_coords_path = model_path.parent / "mouse_txt" / "textures.txt"
+        faces_tex_path = model_path.parent / "mouse_txt" / "faces_tex.txt"
+
+        if uv_coords_path.exists() and faces_tex_path.exists():
+            # UV coordinates: (N_uv, 2) in [0, 1]
+            uv_coords = np.loadtxt(uv_coords_path, dtype=np.float32)
+            self.register_buffer("uv_coords", to_tensor(uv_coords, dtype))
+
+            # UV face indices: (N_faces, 3)
+            faces_tex = np.loadtxt(faces_tex_path, dtype=np.int64)
+            self.register_buffer("faces_tex", torch.tensor(faces_tex, dtype=torch.int64))
+
+            # Compute UV-to-vertex mapping
+            # Each UV vertex maps to a 3D mesh vertex via face correspondence
+            uv_to_vert = self._compute_uv_to_vert_mapping(
+                self.faces, faces_tex, len(uv_coords)
+            )
+            self.register_buffer("uv_to_vert", torch.tensor(uv_to_vert, dtype=torch.int64))
+
+            self.num_uv_coords = len(uv_coords)
+            self._has_uv = True
+        else:
+            self._has_uv = False
+            self.num_uv_coords = 0
+
         # Keypoint mapper for 22 keypoints
         self.mapper = None
         mapper_path = model_path.parent / "keypoint22_mapper.json"
@@ -149,6 +175,172 @@ class MouseBodyModel(nn.Module):
 
         # Move to device
         self.to(self.device)
+
+    @staticmethod
+    def _compute_uv_to_vert_mapping(
+        faces_vert: np.ndarray,
+        faces_tex: np.ndarray,
+        num_uv_coords: int,
+    ) -> np.ndarray:
+        """
+        Compute mapping from UV vertices to 3D mesh vertices.
+
+        For each UV vertex, find the corresponding 3D mesh vertex
+        using face correspondence: faces_tex[f, i] -> faces_vert[f, i]
+
+        Args:
+            faces_vert: (N_faces, 3) 3D mesh face indices
+            faces_tex: (N_faces, 3) UV face indices
+            num_uv_coords: Number of UV coordinates
+
+        Returns:
+            uv_to_vert: (N_uv,) mapping from UV to vertex indices
+        """
+        uv_to_vert = np.zeros(num_uv_coords, dtype=np.int64)
+
+        for f in range(len(faces_vert)):
+            for i in range(3):
+                uv_idx = faces_tex[f, i]
+                vert_idx = faces_vert[f, i]
+                uv_to_vert[uv_idx] = vert_idx
+
+        return uv_to_vert
+
+    def compute_vertex_normals(
+        self,
+        vertices: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute vertex normals from mesh faces.
+
+        Args:
+            vertices: [B, V, 3] vertex positions
+
+        Returns:
+            normals: [B, V, 3] normalized vertex normals
+        """
+        B = vertices.shape[0]
+        device = vertices.device
+        dtype = vertices.dtype
+
+        faces = torch.tensor(self.faces, dtype=torch.int64, device=device)
+
+        # Get vertices of each face
+        v0 = vertices[:, faces[:, 0]]  # [B, F, 3]
+        v1 = vertices[:, faces[:, 1]]
+        v2 = vertices[:, faces[:, 2]]
+
+        # Compute face normals
+        e1 = v1 - v0
+        e2 = v2 - v0
+        face_normals = torch.cross(e1, e2, dim=-1)  # [B, F, 3]
+
+        # Accumulate face normals to vertices
+        vertex_normals = torch.zeros(B, self.num_vertices, 3, dtype=dtype, device=device)
+
+        for i in range(3):
+            vertex_normals.scatter_add_(
+                1,
+                faces[:, i].unsqueeze(0).unsqueeze(-1).expand(B, -1, 3),
+                face_normals,
+            )
+
+        # Normalize
+        vertex_normals = torch.nn.functional.normalize(vertex_normals, dim=-1)
+
+        return vertex_normals
+
+    def compute_tangent_frames(
+        self,
+        vertices: torch.Tensor,
+        normals: torch.Tensor = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Compute local tangent frames (normal, tangent, bitangent) for each vertex.
+
+        Uses UV coordinates to define consistent tangent directions.
+
+        Args:
+            vertices: [B, V, 3] vertex positions
+            normals: [B, V, 3] vertex normals (computed if None)
+
+        Returns:
+            normals: [B, V, 3] normal vectors
+            tangents: [B, V, 3] tangent vectors (along U direction)
+            bitangents: [B, V, 3] bitangent vectors (along V direction)
+        """
+        if normals is None:
+            normals = self.compute_vertex_normals(vertices)
+
+        B = vertices.shape[0]
+        device = vertices.device
+        dtype = vertices.dtype
+
+        if not self._has_uv:
+            # Fallback: construct arbitrary orthonormal frame
+            up = torch.tensor([0.0, 1.0, 0.0], dtype=dtype, device=device)
+            tangents = torch.cross(normals, up.expand_as(normals), dim=-1)
+            tangents = torch.nn.functional.normalize(tangents, dim=-1)
+            bitangents = torch.cross(normals, tangents, dim=-1)
+            return normals, tangents, bitangents
+
+        faces = torch.tensor(self.faces, dtype=torch.int64, device=device)
+
+        # Get UV coordinates
+        uv = self.uv_coords  # [N_uv, 2]
+
+        # Map UV to vertex indices
+        uv_per_face = self.faces_tex  # [F, 3]
+        vert_per_face = faces  # [F, 3]
+
+        # Get positions and UVs per face
+        v0 = vertices[:, vert_per_face[:, 0]]  # [B, F, 3]
+        v1 = vertices[:, vert_per_face[:, 1]]
+        v2 = vertices[:, vert_per_face[:, 2]]
+
+        uv0 = uv[uv_per_face[:, 0]]  # [F, 2]
+        uv1 = uv[uv_per_face[:, 1]]
+        uv2 = uv[uv_per_face[:, 2]]
+
+        # Compute edges
+        e1 = v1 - v0  # [B, F, 3]
+        e2 = v2 - v0
+
+        duv1 = uv1 - uv0  # [F, 2]
+        duv2 = uv2 - uv0
+
+        # Compute tangent per face
+        # T = (duv2.y * e1 - duv1.y * e2) / (duv1.x * duv2.y - duv2.x * duv1.y)
+        denom = duv1[:, 0] * duv2[:, 1] - duv2[:, 0] * duv1[:, 1]
+        denom = denom.unsqueeze(0).unsqueeze(-1)  # [1, F, 1]
+        denom = torch.clamp(denom, min=1e-8)  # Avoid division by zero
+
+        face_tangents = (duv2[:, 1].unsqueeze(0).unsqueeze(-1) * e1 -
+                        duv1[:, 1].unsqueeze(0).unsqueeze(-1) * e2) / denom
+
+        # Accumulate tangents to vertices
+        tangents = torch.zeros(B, self.num_vertices, 3, dtype=dtype, device=device)
+        for i in range(3):
+            tangents.scatter_add_(
+                1,
+                vert_per_face[:, i].unsqueeze(0).unsqueeze(-1).expand(B, -1, 3),
+                face_tangents,
+            )
+
+        # Gram-Schmidt orthonormalization
+        # tangent = normalize(tangent - dot(tangent, normal) * normal)
+        tangents = tangents - (tangents * normals).sum(dim=-1, keepdim=True) * normals
+        tangents = torch.nn.functional.normalize(tangents, dim=-1)
+
+        # Bitangent = cross(normal, tangent)
+        bitangents = torch.cross(normals, tangents, dim=-1)
+
+        return normals, tangents, bitangents
+
+    @property
+    def has_uv(self) -> bool:
+        """Check if UV coordinates are available."""
+        return self._has_uv
 
     @staticmethod
     def euler_to_rotation_matrix(euler_angles: torch.Tensor) -> torch.Tensor:

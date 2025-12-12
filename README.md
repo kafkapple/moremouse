@@ -1,5 +1,10 @@
 # MoReMouse: Monocular Reconstruction of Laboratory Mouse
 
+[![Paper](https://img.shields.io/badge/arXiv-2507.04258-red)](https://arxiv.org/abs/2507.04258)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0.1-orange)](https://pytorch.org/)
+[![Status](https://img.shields.io/badge/Status-Complete-brightgreen)](docs/reports/251210_implementation_complete.md)
+
 A PyTorch implementation of **MoReMouse** - a deep learning framework for dense 3D reconstruction of C57BL/6 laboratory mice from monocular images.
 
 > Reference: [MoReMouse: Monocular Reconstruction of Laboratory Mouse](https://arxiv.org/abs/2507.04258)
@@ -11,21 +16,33 @@ MoReMouse addresses the challenging problem of reconstructing detailed 3D surfac
 - Textureless fur-covered surfaces
 - Lack of realistic 3D mesh models
 
-### Key Contributions
+### Key Features
 
-1. **Gaussian Mouse Avatar (AGAM)**: High-fidelity synthetic data generation via UV-based Gaussian splatting
-2. **Triplane-based Reconstruction**: Transformer-based feedforward network with triplane representation
-3. **Geodesic Embeddings**: Surface correspondence learning for semantic consistency
-4. **Two-stage Training**: NeRF (volumetric) → DMTet (surface) for optimal reconstruction
+| Component | Description |
+|-----------|-------------|
+| **Gaussian Avatar (AGAM)** | UV-based Gaussian splatting for synthetic data generation |
+| **Triplane Generator** | 12-layer transformer with Flash Attention |
+| **NeRF Renderer** | 128 samples/ray volumetric rendering |
+| **Two-stage Training** | NeRF (60 epochs) → DMTet (100 epochs) |
+| **Paper-compliant** | All Table A3 specifications implemented |
 
 ## Architecture
 
 ```
-Input Image → DINOv2 Encoder → Triplane Generator → NeRF/DMTet Renderer → Novel Views + 3D Mesh
-                                     ↓
-                              Multi-head MLP
-                                     ↓
-                        RGB + Density + Embedding
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        MoReMouse Pipeline                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Input Image     DINOv2        Triplane          NeRF         Output    │
+│  [378×378]       Encoder       Generator         Decoder                │
+│                                                                          │
+│  ┌─────────┐    ┌─────────┐   ┌─────────────┐   ┌─────────┐   ┌───────┐│
+│  │         │    │ ViT-B/14│   │ Transformer │   │ MLP     │   │ Novel ││
+│  │   🐭    │ ─▶ │  768-d  │ ─▶│  12 layers  │ ─▶│ 10 layers│ ─▶│ Views ││
+│  │         │    │  frozen │   │  128×128    │   │ RGB+σ+E │   │ + 3D  ││
+│  └─────────┘    └─────────┘   └─────────────┘   └─────────┘   └───────┘│
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Installation
@@ -141,61 +158,117 @@ python scripts/generate_synthetic_data.py --mouse-model /path/to/mouse_model
 
 ```
 moremouse/
-├── configs/
-│   ├── config.yaml          # Main configuration
-│   ├── model/               # Model configs
-│   ├── data/                # Dataset configs
-│   └── train/               # Training configs
+├── configs/                    # Hydra configuration system
+│   ├── config.yaml             # Main config (paths, experiment)
+│   ├── model/moremouse.yaml    # Model architecture (Paper Table A3)
+│   ├── data/                   # Dataset configs
+│   ├── train/default.yaml      # Training hyperparameters
+│   └── avatar/default.yaml     # Avatar training config
 ├── src/
 │   ├── models/
-│   │   ├── mouse_body.py    # MAMMAL-based body model
-│   │   ├── gaussian_avatar.py  # Gaussian avatar for data generation
-│   │   ├── geodesic_embedding.py  # Surface correspondence
-│   │   ├── triplane.py      # Triplane representation
-│   │   └── moremouse_net.py # Main network
+│   │   ├── mouse_body.py       # MAMMAL body (140 joints, 13059 vertices)
+│   │   ├── gaussian_avatar.py  # AGAM + Trainer (400K iter)
+│   │   ├── geodesic_embedding.py  # Heat method geodesic
+│   │   ├── triplane.py         # Transformer + Decoder + Upsampler
+│   │   └── moremouse_net.py    # DINOv2 + Triplane + NeRF
 │   ├── data/
-│   │   ├── dataset.py       # Dataset classes
-│   │   └── transforms.py    # Data augmentation
-│   ├── losses/              # Loss functions
-│   └── utils/               # Utilities
+│   │   ├── dataset.py          # SyntheticDataset, RealDataset
+│   │   ├── mammal_loader.py    # Multi-view loader (video/image)
+│   │   └── transforms.py       # Data augmentation
+│   ├── losses/
+│   │   ├── reconstruction.py   # MSE, L1, SSIM, LPIPS
+│   │   ├── mask.py, depth.py   # Mask/Depth losses
+│   │   ├── geodesic.py         # Embedding loss
+│   │   └── combined.py         # MoReMouseLoss (weighted sum)
+│   └── utils/
+│       ├── logging.py          # Console/file logging
+│       ├── metrics.py          # PSNR, SSIM, LPIPS
+│       └── visualization.py    # Multi-view grid, mesh rendering
 ├── scripts/
-│   ├── train.py             # Training script
-│   ├── evaluate.py          # Evaluation script
-│   ├── inference.py         # Inference script
-│   └── generate_synthetic_data.py  # Data generation
+│   ├── train.py                # Two-stage training (Hydra)
+│   ├── inference.py            # Single image/video inference
+│   ├── evaluate.py             # Metrics evaluation
+│   ├── generate_synthetic_data.py  # Avatar-based generation
+│   ├── run_pipeline.py         # End-to-end pipeline
+│   └── install.sh              # Dependency installation
+├── docs/
+│   ├── reports/                # Implementation reports
+│   ├── guides/                 # Usage guides
+│   └── pipeline_overview.md    # Technical documentation
 ├── environment.yml
 └── README.md
 ```
 
 ## Usage
 
+### Full Pipeline (run_pipeline.py)
+
+```bash
+# All stages: avatar → synthetic → train → evaluate → visualize
+python scripts/run_pipeline.py --stage all \
+    --data-dir ../MAMMAL_mouse/data/markerless_mouse_1 \
+    --device cuda:0
+
+# Individual stages
+python scripts/run_pipeline.py --stage avatar    # AGAM training
+python scripts/run_pipeline.py --stage synthetic # Data generation
+python scripts/run_pipeline.py --stage train     # MoReMouse training
+python scripts/run_pipeline.py --stage evaluate  # Metrics evaluation
+python scripts/run_pipeline.py --stage visualize # Visualization
+```
+
 ### 1. Generate Synthetic Training Data
 
 ```bash
-# Generate from MAMMAL mouse model
+# Quick test (50 frames, 8 views)
 python scripts/generate_synthetic_data.py \
-    --mouse-model /path/to/MAMMAL_mouse/mouse_model \
     --output data/synthetic \
-    --num-frames 1000 \
+    --mouse-model ../MAMMAL_mouse/mouse_model \
+    --num-frames 50 \
+    --num-views 8 \
+    --device cuda:0
+
+# Paper settings (6000 frames, 64 views)
+python scripts/generate_synthetic_data.py \
+    --output data/synthetic_full \
+    --mouse-model ../MAMMAL_mouse/mouse_model \
+    --num-frames 6000 \
     --num-views 64 \
-    --device cuda:1
+    --image-size 800 \
+    --device cuda:0
 ```
 
 ### 2. Training
 
 ```bash
-# Train with default config
-python scripts/train.py
-
-# Train with custom settings
+# Quick test (5 epochs, no DMTet)
 python scripts/train.py \
-    experiment.name=my_experiment \
-    train.stages.nerf.epochs=30 \
-    logging.use_wandb=true
+    experiment.name=quick_test \
+    experiment.device=cuda:0 \
+    train.stages.nerf.epochs=5 \
+    train.stages.dmtet.epochs=0 \
+    logging.use_wandb=false
+
+# Paper settings (60 + 100 epochs)
+python scripts/train.py \
+    experiment.name=moremouse_full \
+    experiment.device=cuda:0 \
+    train.stages.nerf.epochs=60 \
+    train.stages.dmtet.epochs=100
 
 # Training on gpu05 (use GPU 1)
 CUDA_VISIBLE_DEVICES=1 python scripts/train.py experiment.device=cuda:0
 ```
+
+**Key Hydra Config Overrides:**
+| Config Key | Default | Description |
+|------------|---------|-------------|
+| `experiment.name` | `moremouse_default` | Experiment name |
+| `experiment.device` | `cuda:0` | Device |
+| `train.stages.nerf.epochs` | 60 | NeRF stage epochs |
+| `train.stages.dmtet.epochs` | 100 | DMTet stage epochs |
+| `data.dataloader.batch_size` | 4 | Batch size |
+| `logging.use_wandb` | false | Enable W&B |
 
 ### 3. Evaluation
 
@@ -229,26 +302,33 @@ python scripts/inference.py \
 ## Model Components
 
 ### Mouse Body Model (MAMMAL-based)
-- 140 articulated joints
-- 13,059 vertices
-- Linear Blend Skinning (LBS) deformation
-- Euler angle rotation (ZYX convention)
+- **140 articulated joints** with hierarchical structure
+- **13,059 vertices** for detailed mesh representation
+- **Linear Blend Skinning (LBS)** with adaptive bone length scaling
+- **ZYX Euler angle** rotation convention
+- **22 semantic keypoints** extraction support
 
-### Gaussian Mouse Avatar
-- UV-based Gaussian control
-- Pose-dependent deformation
-- Per-vertex Gaussian parameters (position, color, opacity, scale, rotation)
+### Gaussian Mouse Avatar (AGAM)
+- **UV-based Gaussian control**: 1 Gaussian per vertex (13,059 total)
+- **Per-vertex parameters**: position offset, color (RGB), opacity, scale, rotation (quaternion)
+- **400K iteration** training on 6-view multi-view data (800 frames)
+- **Auto-checkpoint detection** for resume training
+- **gsplat rendering** for differentiable Gaussian splatting
 
 ### Geodesic Embedding
-- Heat method for geodesic distance computation
-- 3D embedding preserving surface distances
-- PCA → HSV transformation for visualization
+- **Heat method** for geodesic distance computation (potpourri3d)
+- **Dijkstra fallback** if Heat method unavailable
+- **3D embedding** preserving surface distances
+- **PCA → HSV** transformation for visualization
 
-### MoReMouse Network
-- **Encoder**: DINOv2-B/14 (frozen, 768-dim features)
-- **Triplane Generator**: 12-layer transformer, 64×64 resolution, 512 channels
-- **Decoder**: 10-layer shared MLP with multi-head outputs
-- **Renderer**: NeRF (128 samples/ray) or DMTet (256³ resolution)
+### MoReMouse Network (Paper Table A3 Compliant)
+| Component | Specification |
+|-----------|---------------|
+| **Encoder** | DINOv2-B/14 (frozen, 768-dim) |
+| **Triplane** | 12 layers, 16 heads, 128×128, 80 output channels |
+| **Decoder** | 10 shared layers × 64 neurons |
+| **NeRF** | 128 samples/ray, radius=0.87, near=0.1, far=4.0 |
+| **Flash Attention** | O(n) memory via `F.scaled_dot_product_attention` |
 
 ## Training Details
 
@@ -278,23 +358,46 @@ python scripts/inference.py \
 
 ## Hardware Requirements
 
-- **Training**: NVIDIA GPU with 16GB+ VRAM (A100 recommended)
-- **Inference**: NVIDIA GPU with 8GB+ VRAM
-- **Memory**: 32GB RAM recommended
-- **Storage**: 50GB+ for full dataset
+| Component | Training | Inference |
+|-----------|----------|-----------|
+| **GPU VRAM** | 16GB+ (A100 recommended) | 8GB+ |
+| **RAM** | 32GB+ | 16GB+ |
+| **Storage** | 100GB+ (full dataset) | 10GB |
 
-## GPU05 Server Notes
+## Quick Reference
 
 ```bash
-# Use GPU 1 (GPU 0 is occupied)
+# Environment setup
+conda activate moremouse
 export CUDA_VISIBLE_DEVICES=1
 
-# Activate environment
-conda activate moremouse
+# Full pipeline (quick test)
+python scripts/run_pipeline.py --stage synthetic --num-frames 50 --device cuda:0
+python scripts/run_pipeline.py --stage train --nerf-epochs 5 --device cuda:0
+python scripts/run_pipeline.py --stage evaluate --checkpoint checkpoints/latest.pt
+python scripts/run_pipeline.py --stage visualize --image input.png
 
-# Run training
-python scripts/train.py experiment.device=cuda:0
+# Individual commands
+python scripts/generate_synthetic_data.py --num-frames 50 --device cuda:0
+python scripts/train.py experiment.device=cuda:0 train.stages.nerf.epochs=5
+python scripts/evaluate.py --checkpoint checkpoints/best.pt --device cuda:0
+python scripts/inference.py --image input.png --checkpoint checkpoints/best.pt
 ```
+
+## Documentation
+
+- [Implementation Status Report](docs/reports/251210_implementation_complete.md)
+- [Pipeline Overview](docs/pipeline_overview.md)
+- [GPU05 Pipeline Guide](docs/guides/gpu05_pipeline_guide.md)
+- [Troubleshooting](docs/troubleshooting/)
+
+## Data Source
+
+- **Dataset**: markerless_mouse_1 (Dunn et al., 2021)
+- **Camera System**: 6-view synchronized cameras
+- **Avatar Training**: 800 frames (uniformly sampled from first 8000 frames)
+- **Species**: C57BL/6 laboratory mice
+- **Note**: "C57BL/6 mice usually show similar texture" (Paper)
 
 ## Citation
 
@@ -313,7 +416,8 @@ This project is for research purposes only.
 
 ## Acknowledgments
 
-- [MAMMAL](https://github.com/MAMMAL-Lab/MAMMAL) for the mouse body model
-- [DINOv2](https://github.com/facebookresearch/dinov2) for image encoding
+- [MAMMAL](https://github.com/MAMMAL-Lab/MAMMAL) for the mouse body model (140 joints, 13059 vertices)
+- [DINOv2](https://github.com/facebookresearch/dinov2) for image encoding (ViT-B/14)
 - [gsplat](https://github.com/nerfstudio-project/gsplat) for Gaussian splatting
 - [Kaolin](https://github.com/NVIDIAGameWorks/kaolin) for DMTet implementation
+- [potpourri3d](https://github.com/nmwsharp/potpourri3d) for geodesic distance (Heat method)

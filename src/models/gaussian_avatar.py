@@ -5,6 +5,12 @@ UV-based Gaussian avatar for laboratory mouse.
 Each Gaussian is controlled by UV coordinates on the mesh surface,
 enabling pose-dependent deformation via Linear Blend Skinning.
 
+Key features (based on MoReMouse paper Section 3.1):
+- UV-parameterized Gaussian positions on mesh surface
+- Local tangent frame for rotation optimization
+- LBS deformation: μ'_Ψl = D_Ψl(μ0 + Δμ_Ψl)
+- Loss: L1 + SSIM + LPIPS + TV (total variation)
+
 Reference: MoReMouse paper Section 3.1
 """
 
@@ -85,80 +91,118 @@ class GaussianAvatar(nn.Module):
     """
     Gaussian Mouse Avatar (AGAM) for synthetic data generation.
 
+    UV-based implementation following MoReMouse paper:
+    - Gaussians are anchored to UV coordinates on mesh surface
+    - Position offsets are defined in local tangent frame
+    - Rotations are optimized in local coordinate system
+    - LBS deformation: μ'_Ψl = D_Ψl(μ0 + Δμ_Ψl)
+
     Each Gaussian point encodes:
-    - Position offset from mesh surface
+    - Position offset from mesh surface (in local tangent frame)
     - RGB color
     - Opacity
     - Scale (3D anisotropic)
-    - Rotation (quaternion)
-
-    All parameters are UV-mapped for consistent deformation.
+    - Rotation (quaternion in local frame)
 
     Args:
-        body_model: MouseBodyModel instance
+        body_model: MouseBodyModel instance with UV coordinates
         num_gaussians_per_vertex: Number of Gaussians per mesh vertex
         init_scale: Initial scale for Gaussians
+        min_scale: Minimum allowed scale
+        max_scale: Maximum allowed scale
         opacity_init: Initial opacity value
+        use_local_frame: Whether to use local tangent frame for offsets/rotations
     """
 
     def __init__(
         self,
         body_model: MouseBodyModel,
         num_gaussians_per_vertex: int = 1,
-        init_scale: float = 0.01,
-        min_scale: float = 0.001,
-        max_scale: float = 0.1,
-        opacity_init: float = 0.8,
+        init_scale: float = 0.005,  # Reduced from 0.01 for finer detail
+        min_scale: float = 0.0005,  # Reduced from 0.001
+        max_scale: float = 0.05,    # Reduced from 0.1
+        opacity_init: float = 0.9,   # Increased from 0.8
+        use_local_frame: bool = True,
     ):
         super().__init__()
 
         self.body_model = body_model
         self.num_gaussians_per_vertex = num_gaussians_per_vertex
+        self.use_local_frame = use_local_frame
+
+        # Use UV-based or vertex-based Gaussians
+        if body_model.has_uv:
+            # UV-based: one Gaussian per UV coordinate
+            self.num_anchor_points = body_model.num_uv_coords
+            self.use_uv = True
+            # UV to vertex mapping for position lookup
+            self.register_buffer("anchor_to_vert", body_model.uv_to_vert)
+        else:
+            # Fallback to vertex-based
+            self.num_anchor_points = body_model.num_vertices
+            self.use_uv = False
+            self.register_buffer("anchor_to_vert", torch.arange(body_model.num_vertices))
+
         self.num_vertices = body_model.num_vertices
-        self.num_gaussians = self.num_vertices * num_gaussians_per_vertex
+        self.num_gaussians = self.num_anchor_points * num_gaussians_per_vertex
 
         self.min_scale = min_scale
         self.max_scale = max_scale
 
         # Initialize Gaussian parameters
-        # Position offsets (delta mu)
+        # Position offsets (delta mu) - in LOCAL tangent frame
+        # Small random initialization for better coverage
+        position_offsets = torch.randn(self.num_gaussians, 3) * 0.001
         self.register_parameter(
             "position_offsets",
-            nn.Parameter(torch.zeros(self.num_gaussians, 3))
+            nn.Parameter(position_offsets)
         )
 
-        # RGB colors (before sigmoid)
+        # RGB colors (before sigmoid) - initialize with small variation
+        # This gives initial colors around 0.5 with slight variation
+        colors_raw = torch.randn(self.num_gaussians, 3) * 0.1
         self.register_parameter(
             "colors_raw",
-            nn.Parameter(torch.zeros(self.num_gaussians, 3))
+            nn.Parameter(colors_raw)
         )
 
-        # Opacity (before sigmoid)
+        # Opacity (before sigmoid) - higher initial opacity
         opacity_raw = torch.ones(self.num_gaussians) * self._inverse_sigmoid(opacity_init)
         self.register_parameter(
             "opacity_raw",
             nn.Parameter(opacity_raw)
         )
 
-        # Scales (log scale for positivity)
+        # Scales (log scale for positivity) - per-axis variation
         log_scale = math.log(init_scale)
+        # Add small variation to scales
+        log_scales = torch.ones(self.num_gaussians, 3) * log_scale
+        log_scales += torch.randn_like(log_scales) * 0.1
         self.register_parameter(
             "log_scales",
-            nn.Parameter(torch.ones(self.num_gaussians, 3) * log_scale)
+            nn.Parameter(log_scales)
         )
 
-        # Rotations (quaternion wxyz)
+        # Rotations (quaternion wxyz) - in LOCAL tangent frame
         quaternions = torch.zeros(self.num_gaussians, 4)
-        quaternions[:, 0] = 1.0  # Identity rotation
+        quaternions[:, 0] = 1.0  # Identity rotation in local frame
+        # Add small perturbation for diversity
+        quaternions[:, 1:] = torch.randn(self.num_gaussians, 3) * 0.01
         self.register_parameter(
             "quaternions",
             nn.Parameter(quaternions)
         )
 
-        # Vertex-to-Gaussian mapping
+        # Anchor point indices (UV coords or vertices)
+        self.register_buffer(
+            "anchor_indices",
+            torch.arange(self.num_anchor_points).repeat_interleave(num_gaussians_per_vertex)
+        )
+
+        # For backward compatibility
         self.register_buffer(
             "vertex_indices",
-            torch.arange(self.num_vertices).repeat_interleave(num_gaussians_per_vertex)
+            self.anchor_to_vert[self.anchor_indices]
         )
 
     @staticmethod
@@ -192,7 +236,13 @@ class GaussianAvatar(nn.Module):
         scale: torch.Tensor = None,
     ) -> Dict[str, torch.Tensor]:
         """
-        Compute posed Gaussian parameters.
+        Compute posed Gaussian parameters using local tangent frame.
+
+        Following MoReMouse paper:
+        μ'_Ψl = D_Ψl(μ0 + Δμ_Ψl)
+
+        Position offsets (Δμ) are defined in local tangent frame and
+        transformed to world space using the tangent frame (T, B, N).
 
         Args:
             pose: [B, J*3] joint angles
@@ -203,34 +253,63 @@ class GaussianAvatar(nn.Module):
 
         Returns:
             Dictionary with:
-            - means: [B, N, 3] Gaussian positions
+            - means: [B, N, 3] Gaussian positions in world space
             - colors: [B, N, 3] RGB colors
             - opacity: [B, N] opacity values
             - scales: [B, N, 3] anisotropic scales
-            - rotations: [B, N, 4] quaternion rotations
+            - rotations: [B, N, 4] quaternion rotations in world space
         """
         B = pose.shape[0]
         device = pose.device
 
-        # Get posed mesh vertices
+        # Get posed mesh vertices via LBS
         V, J = self.body_model(pose, bone_lengths, center_bone_length, trans, scale)
 
-        # Base positions: vertices corresponding to each Gaussian
+        # Base positions: vertices corresponding to each Gaussian anchor
         base_positions = V[:, self.vertex_indices]  # [B, N, 3]
 
-        # Add position offsets
-        means = base_positions + self.position_offsets.unsqueeze(0)
+        if self.use_local_frame:
+            # Compute local tangent frames at each vertex
+            normals, tangents, bitangents = self.body_model.compute_tangent_frames(V)
+
+            # Get frames for each Gaussian
+            N_gaussians = normals[:, self.vertex_indices]   # [B, N, 3]
+            T_gaussians = tangents[:, self.vertex_indices]  # [B, N, 3]
+            B_gaussians = bitangents[:, self.vertex_indices]  # [B, N, 3]
+
+            # Transform position offsets from local to world frame
+            # offset_world = offset.x * T + offset.y * B + offset.z * N
+            offsets = self.position_offsets.unsqueeze(0)  # [1, N, 3]
+            offset_world = (
+                offsets[..., 0:1] * T_gaussians +
+                offsets[..., 1:2] * B_gaussians +
+                offsets[..., 2:3] * N_gaussians
+            )
+
+            means = base_positions + offset_world
+
+            # Transform rotations from local to world frame
+            # Build rotation matrix from tangent frame [T, B, N]
+            # This matrix transforms from local to world coordinates
+            frame_matrix = torch.stack([T_gaussians, B_gaussians, N_gaussians], dim=-1)  # [B, N, 3, 3]
+
+            # Convert frame to quaternion
+            frame_quats = rotation_matrix_to_quaternion(frame_matrix)  # [B, N, 4]
+
+            # Local rotation quaternion
+            local_quats = self.get_rotations().unsqueeze(0).expand(B, -1, -1)  # [B, N, 4]
+
+            # Combine: world_rotation = frame_rotation * local_rotation
+            rotations = quaternion_multiply(frame_quats, local_quats)
+        else:
+            # Simple version: add offsets directly in world space
+            means = base_positions + self.position_offsets.unsqueeze(0)
+            rotations = self.get_rotations().unsqueeze(0).expand(B, -1, -1)
 
         # Get other parameters (same for all batch items)
         colors = self.get_colors().unsqueeze(0).expand(B, -1, -1)
         opacity = self.get_opacity().unsqueeze(0).expand(B, -1)
         scales = self.get_scales().unsqueeze(0).expand(B, -1, -1)
-        rotations = self.get_rotations().unsqueeze(0).expand(B, -1, -1)
-
-        # For proper deformation, we should also transform rotations
-        # based on local coordinate frame of mesh surface
-        # This is a simplified version; full implementation would use
-        # vertex normals and tangent frames
 
         return {
             "means": means,
@@ -274,27 +353,26 @@ class GaussianAvatar(nn.Module):
         rendered_alphas = []
 
         for b in range(B):
-            # Detach tensors for gsplat (avoids "can't call numpy on grad tensor" error)
-            means = gaussian_params["means"][b].detach()
-            quats = gaussian_params["rotations"][b].detach()
-            scales = gaussian_params["scales"][b].detach()
-            colors = gaussian_params["colors"][b].detach()
-            opacities = gaussian_params["opacity"][b].detach()
+            # Get Gaussian parameters (keep gradients for backprop)
+            means = gaussian_params["means"][b]
+            quats = gaussian_params["rotations"][b]
+            scales = gaussian_params["scales"][b]
+            colors = gaussian_params["colors"][b]
+            opacities = gaussian_params["opacity"][b]
 
-            # Render using gsplat
-            # backgrounds must be [C] or [H, W, C] for gsplat
-            # Detach viewmat and K as well to prevent grad issues
+            # Render using gsplat with gradient support
+            # Note: gsplat's rasterization supports autograd
             render_colors, render_alphas, info = rasterization(
                 means=means,
                 quats=quats,
                 scales=scales,
                 opacities=opacities,
                 colors=colors,
-                viewmats=viewmat[b:b+1].detach(),
-                Ks=K[b:b+1].detach(),
+                viewmats=viewmat[b:b+1],
+                Ks=K[b:b+1],
                 width=width,
                 height=height,
-                backgrounds=torch.ones(3, device=device),  # [C] format
+                backgrounds=torch.ones(1, 3, device=device),  # (C, channels) for gsplat 1.0
             )
 
             rendered_images.append(render_colors[0])  # [H, W, 3]
@@ -311,7 +389,13 @@ class GaussianAvatarTrainer:
     Trainer for Gaussian Mouse Avatar.
 
     Uses multi-view images to optimize Gaussian parameters.
-    Loss: L1 + SSIM + LPIPS
+    Loss: L1 + SSIM + LPIPS + TV (total variation)
+
+    Following MoReMouse paper:
+    - Loss = L1 + λ_SSIM * (1 - SSIM) + λ_LPIPS * LPIPS + λ_TV * TV
+    - λ_SSIM = 0.2, λ_LPIPS = 0.1 (from paper)
+    - TV loss for spatial smoothness of Gaussian parameters
+    - Surface distance constraint to keep Gaussians on mesh
 
     Reference: MoReMouse paper - 800 frames, 400k iterations
     """
@@ -322,6 +406,8 @@ class GaussianAvatarTrainer:
         lr: float = 1e-3,
         lambda_ssim: float = 0.2,
         lambda_lpips: float = 0.1,
+        lambda_tv: float = 0.01,
+        lambda_surface: float = 0.1,
         device: torch.device = None,
     ):
         self.avatar = avatar
@@ -330,9 +416,18 @@ class GaussianAvatarTrainer:
 
         self.lambda_ssim = lambda_ssim
         self.lambda_lpips = lambda_lpips
+        self.lambda_tv = lambda_tv
+        self.lambda_surface = lambda_surface
 
-        # Optimizer
-        self.optimizer = torch.optim.Adam(avatar.parameters(), lr=lr)
+        # Optimizer with per-parameter learning rates
+        param_groups = [
+            {'params': [avatar.position_offsets], 'lr': lr * 0.1},  # Slower for positions
+            {'params': [avatar.colors_raw], 'lr': lr},
+            {'params': [avatar.opacity_raw], 'lr': lr * 0.5},
+            {'params': [avatar.log_scales], 'lr': lr * 0.5},
+            {'params': [avatar.quaternions], 'lr': lr * 0.1},  # Slower for rotations
+        ]
+        self.optimizer = torch.optim.Adam(param_groups)
 
         # LPIPS loss
         try:
@@ -373,6 +468,61 @@ class GaussianAvatarTrainer:
 
         return 1 - ssim.mean()
 
+    def compute_tv_loss(self) -> torch.Tensor:
+        """
+        Compute Total Variation loss for Gaussian parameters.
+
+        Encourages spatial smoothness in the parameter space.
+        For UV-based Gaussians, this penalizes differences between
+        neighboring Gaussians in the UV space.
+        """
+        # TV loss on position offsets
+        offsets = self.avatar.position_offsets  # [N, 3]
+
+        # Since Gaussians are ordered by UV/vertex index, neighbors in array
+        # are approximately neighbors on the surface
+        offset_diff = offsets[1:] - offsets[:-1]
+        tv_offset = (offset_diff ** 2).sum()
+
+        # TV loss on colors
+        colors = self.avatar.colors_raw  # [N, 3]
+        color_diff = colors[1:] - colors[:-1]
+        tv_color = (color_diff ** 2).sum()
+
+        # TV loss on scales
+        scales = self.avatar.log_scales  # [N, 3]
+        scale_diff = scales[1:] - scales[:-1]
+        tv_scale = (scale_diff ** 2).sum()
+
+        # Normalize by number of parameters
+        N = self.avatar.num_gaussians
+        tv_loss = (tv_offset + tv_color * 0.1 + tv_scale * 0.1) / N
+
+        return tv_loss
+
+    def compute_surface_loss(self) -> torch.Tensor:
+        """
+        Compute surface distance constraint loss.
+
+        Penalizes large position offsets to keep Gaussians
+        close to the mesh surface.
+        """
+        offsets = self.avatar.position_offsets  # [N, 3]
+
+        # L2 norm of offsets - penalize Gaussians that drift too far
+        offset_magnitude = (offsets ** 2).sum(dim=-1)
+
+        # Soft constraint: allow small offsets, penalize large ones
+        # Using Huber-like loss: linear penalty above threshold
+        threshold = 0.005  # 5mm threshold
+        surface_loss = torch.where(
+            offset_magnitude < threshold ** 2,
+            offset_magnitude,  # Quadratic below threshold
+            2 * threshold * torch.sqrt(offset_magnitude) - threshold ** 2  # Linear above
+        ).mean()
+
+        return surface_loss
+
     def train_step(
         self,
         pose: torch.Tensor,
@@ -381,9 +531,14 @@ class GaussianAvatarTrainer:
         Ks: torch.Tensor,
         width: int,
         height: int,
+        trans: torch.Tensor = None,
+        scale: torch.Tensor = None,
+        world_scale: float = 1.0,
     ) -> Dict[str, float]:
         """
-        Single training step.
+        Single training step with full loss function.
+
+        Loss = L1 + λ_SSIM * (1-SSIM) + λ_LPIPS * LPIPS + λ_TV * TV + λ_surface * Surface
 
         Args:
             pose: [B, J*3] pose parameters
@@ -392,14 +547,26 @@ class GaussianAvatarTrainer:
             Ks: [B, 3, 3] intrinsics
             width: Image width
             height: Image height
+            trans: [B, 3] global translation (from MAMMAL)
+            scale: [B, 1] global scale (from MAMMAL)
+            world_scale: float, scale factor to convert model coords to world coords (e.g., 100 for mm)
 
         Returns:
             Dictionary of loss values
         """
         self.optimizer.zero_grad()
 
-        # Forward pass
-        gaussian_params = self.avatar(pose.to(self.device))
+        # Forward pass with global transform
+        gaussian_params = self.avatar(
+            pose.to(self.device),
+            trans=trans.to(self.device) if trans is not None else None,
+            scale=scale.to(self.device) if scale is not None else None,
+        )
+
+        # Apply world_scale to Gaussian means (convert from model coords to camera coords)
+        if world_scale != 1.0:
+            gaussian_params["means"] = gaussian_params["means"] * world_scale
+            gaussian_params["scales"] = gaussian_params["scales"] * world_scale
         rgb, alpha = self.avatar.render(
             gaussian_params,
             viewmats.to(self.device),
@@ -410,13 +577,13 @@ class GaussianAvatarTrainer:
 
         target = target_images.to(self.device)
 
-        # L1 loss
+        # L1 loss (primary reconstruction)
         l1_loss = F.l1_loss(rgb, target)
 
-        # SSIM loss
+        # SSIM loss (structural similarity)
         ssim_loss = self.compute_ssim(rgb, target)
 
-        # LPIPS loss
+        # LPIPS loss (perceptual)
         if self.lpips_fn is not None:
             # LPIPS expects BCHW in [-1, 1]
             pred_lpips = rgb.permute(0, 3, 1, 2) * 2 - 1
@@ -425,11 +592,27 @@ class GaussianAvatarTrainer:
         else:
             lpips_loss = torch.tensor(0.0, device=self.device)
 
-        # Total loss
-        total_loss = l1_loss + self.lambda_ssim * ssim_loss + self.lambda_lpips * lpips_loss
+        # TV loss (spatial smoothness)
+        tv_loss = self.compute_tv_loss()
+
+        # Surface constraint loss (keep Gaussians on mesh)
+        surface_loss = self.compute_surface_loss()
+
+        # Total loss (following paper: L1 + λ_SSIM * SSIM + λ_LPIPS * LPIPS)
+        total_loss = (
+            l1_loss +
+            self.lambda_ssim * ssim_loss +
+            self.lambda_lpips * lpips_loss +
+            self.lambda_tv * tv_loss +
+            self.lambda_surface * surface_loss
+        )
 
         # Backward
         total_loss.backward()
+
+        # Gradient clipping for stability
+        torch.nn.utils.clip_grad_norm_(self.avatar.parameters(), max_norm=1.0)
+
         self.optimizer.step()
 
         return {
@@ -437,6 +620,8 @@ class GaussianAvatarTrainer:
             "l1": l1_loss.item(),
             "ssim": ssim_loss.item(),
             "lpips": lpips_loss.item(),
+            "tv": tv_loss.item(),
+            "surface": surface_loss.item(),
         }
 
     def train(
@@ -449,6 +634,7 @@ class GaussianAvatarTrainer:
         vis_freq: int = 1000,
         vis_dir: str = "outputs/avatar_vis",
         resume_from: str = None,
+        world_scale: float = None,
     ):
         """
         Full training loop for Gaussian Avatar.
@@ -462,6 +648,8 @@ class GaussianAvatarTrainer:
             vis_freq: Save visualization every N iterations
             vis_dir: Directory for visualizations
             resume_from: Path to checkpoint to resume from (optional)
+            world_scale: Scale factor to convert model coords to camera coords.
+                         If None, auto-compute from camera positions.
         """
         from pathlib import Path
         from tqdm import tqdm
@@ -497,12 +685,35 @@ class GaussianAvatarTrainer:
         for _ in range(start_iteration):
             scheduler.step()
 
+        # Auto-compute world_scale from camera positions if not provided
+        if world_scale is None:
+            # Get camera positions from first batch
+            first_batch = next(iter(dataloader))
+            viewmats = first_batch["viewmats"]  # [B, num_cams, 4, 4]
+            # Camera position = -R^T @ t, where R is viewmat[:3,:3], t is viewmat[:3,3]
+            R = viewmats[0, 0, :3, :3]  # First camera rotation
+            t = viewmats[0, 0, :3, 3]   # First camera translation
+            cam_pos = -R.T @ t
+            cam_dist = cam_pos.norm().item()
+
+            # Body model size is ~1 unit (T-pose spans ~1 meter)
+            # If camera is at ~200mm, scale = 200 (model meters -> camera mm)
+            # If camera is at ~2m, scale = 1 (both in meters)
+            if cam_dist > 10:  # Camera distance > 10 units = likely millimeters
+                world_scale = cam_dist / 3.0  # Mouse at ~1/3 of camera distance
+            else:
+                world_scale = 1.0  # Already in matching units
+
+            print(f"Auto-computed world_scale: {world_scale:.2f} (camera distance: {cam_dist:.2f})")
+
+        self._world_scale = world_scale  # Store for visualization
+
         # Training loop
         data_iter = iter(dataloader)
         remaining_iterations = num_iterations - start_iteration
         pbar = tqdm(range(remaining_iterations), desc=f"Training Avatar (from {start_iteration})")
 
-        running_loss = {"total": 0, "l1": 0, "ssim": 0, "lpips": 0}
+        running_loss = {"total": 0, "l1": 0, "ssim": 0, "lpips": 0, "tv": 0, "surface": 0}
         log_count = 0
 
         for i in pbar:
@@ -519,6 +730,8 @@ class GaussianAvatarTrainer:
             viewmats = batch["viewmats"]  # [B, num_cams, 4, 4]
             Ks = batch["Ks"]  # [B, num_cams, 3, 3]
             pose = batch["pose"]  # [B, J*3] or None
+            global_transform = batch.get("global_transform")  # Dict with center, angle
+            mammal_global = batch.get("mammal_global")  # Dict with R, T, s
 
             B, num_cams = images.shape[:2]
             H, W = images.shape[2:4]
@@ -535,8 +748,22 @@ class GaussianAvatarTrainer:
             if pose is None or pose[0] is None:
                 pose = torch.randn(B, self.avatar.body_model.num_joints * 3) * 0.1
 
-            # Training step
-            losses = self.train_step(pose, target_images, viewmat, K, W, H)
+            # Extract trans and scale from global_transform or mammal_global
+            trans = None
+            scale = None
+            if global_transform is not None and global_transform.get("center") is not None:
+                # Use center from center_rotation.npz
+                trans = global_transform["center"].unsqueeze(0) if global_transform["center"].dim() == 1 else global_transform["center"]
+            elif mammal_global is not None and mammal_global.get("T") is not None:
+                # Note: MAMMAL T is in pixel coords, may not be directly usable
+                # For now, skip using it for translation
+                pass
+
+            # Training step with world_scale
+            losses = self.train_step(
+                pose, target_images, viewmat, K, W, H,
+                trans=trans, scale=scale, world_scale=self._world_scale
+            )
             scheduler.step()
 
             # Accumulate losses
@@ -562,7 +789,9 @@ class GaussianAvatarTrainer:
             if (iteration + 1) % vis_freq == 0:
                 self._save_visualization(
                     pose[:1], target_images[:1], viewmat[:1], K[:1], W, H,
-                    vis_dir / f"iter_{iteration + 1:06d}.png"
+                    vis_dir / f"iter_{iteration + 1:06d}.png",
+                    trans=trans[:1] if trans is not None else None,
+                    scale=scale[:1] if scale is not None else None,
                 )
 
             # Checkpoint
@@ -585,14 +814,28 @@ class GaussianAvatarTrainer:
         width: int,
         height: int,
         save_path,
+        trans: torch.Tensor = None,
+        scale: torch.Tensor = None,
     ):
         """Save visualization comparing prediction and target."""
         import cv2
         from pathlib import Path
 
         self.avatar.eval()
+        world_scale = getattr(self, '_world_scale', 1.0)
+
         with torch.no_grad():
-            gaussian_params = self.avatar(pose.to(self.device))
+            gaussian_params = self.avatar(
+                pose.to(self.device),
+                trans=trans.to(self.device) if trans is not None else None,
+                scale=scale.to(self.device) if scale is not None else None,
+            )
+
+            # Apply world_scale
+            if world_scale != 1.0:
+                gaussian_params["means"] = gaussian_params["means"] * world_scale
+                gaussian_params["scales"] = gaussian_params["scales"] * world_scale
+
             rgb, alpha = self.avatar.render(
                 gaussian_params,
                 viewmat.to(self.device),
@@ -620,9 +863,15 @@ class GaussianAvatarTrainer:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "config": {
                 "num_vertices": self.avatar.num_vertices,
+                "num_gaussians": self.avatar.num_gaussians,
+                "num_anchor_points": self.avatar.num_anchor_points,
                 "num_gaussians_per_vertex": self.avatar.num_gaussians_per_vertex,
+                "use_uv": self.avatar.use_uv,
+                "use_local_frame": self.avatar.use_local_frame,
                 "lambda_ssim": self.lambda_ssim,
                 "lambda_lpips": self.lambda_lpips,
+                "lambda_tv": self.lambda_tv,
+                "lambda_surface": self.lambda_surface,
             }
         }
         torch.save(checkpoint, path)
@@ -649,7 +898,8 @@ class GaussianAvatarTrainer:
 
         avatar = GaussianAvatar(
             body_model=body_model,
-            num_gaussians_per_vertex=config["num_gaussians_per_vertex"],
+            num_gaussians_per_vertex=config.get("num_gaussians_per_vertex", 1),
+            use_local_frame=config.get("use_local_frame", True),
         )
         avatar.load_state_dict(checkpoint["avatar_state_dict"])
 
@@ -657,6 +907,8 @@ class GaussianAvatarTrainer:
             avatar=avatar,
             lambda_ssim=config.get("lambda_ssim", 0.2),
             lambda_lpips=config.get("lambda_lpips", 0.1),
+            lambda_tv=config.get("lambda_tv", 0.01),
+            lambda_surface=config.get("lambda_surface", 0.1),
             device=device,
         )
 

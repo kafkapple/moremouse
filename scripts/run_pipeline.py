@@ -63,12 +63,14 @@ def train_avatar(args):
 
     # Load data
     print(f"Loading multi-view data from {args.data_dir}...")
+    print(f"Using pose data from {args.pose_dir}...")
     dataloader = create_mammal_dataloader(
         args.data_dir,
         batch_size=1,  # Multi-view, so batch_size=1 means 1 frame with all views
         num_workers=args.num_workers,
         num_frames=args.avatar_frames,
         image_size=args.avatar_image_size,  # Paper: 800x800 for avatar
+        pose_dir=args.pose_dir,  # MAMMAL pose estimation results
     )
 
     # Train (with auto-resume support)
@@ -298,7 +300,9 @@ def main():
     # Video format: /home/joon/data/markerless_mouse_1_nerf/videos_undist/
     # Image format: /home/joon/data/markerless_mouse/mouse1/
     parser.add_argument("--data-dir", type=str, default="/home/joon/data/markerless_mouse_1_nerf")
-    parser.add_argument("--mouse-model", type=str, default="/home/joon/data/MAMMAL_mouse/mouse_model")
+    parser.add_argument("--mouse-model", type=str, default="/home/joon/MAMMAL_mouse/mouse_model")
+    parser.add_argument("--pose-dir", type=str, default="/home/joon/MAMMAL_mouse/results/monocular/mouse_batch_20251125_132606_mouse_1",
+                       help="MAMMAL pose estimation results directory (100 frames)")
 
     # Avatar training
     parser.add_argument("--avatar-frames", type=int, default=800)
