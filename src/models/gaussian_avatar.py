@@ -670,11 +670,18 @@ class GaussianAvatarTrainer:
                 print(f"Warning: Checkpoint {resume_from} not found, starting from scratch")
         else:
             # Auto-detect latest checkpoint
+            # Priority: avatar_iter_*.pt (by iteration number) > avatar_final.pt
             existing_checkpoints = sorted(checkpoint_dir.glob("avatar_iter_*.pt"))
+            final_checkpoint = checkpoint_dir / "avatar_final.pt"
+
             if existing_checkpoints:
                 latest = existing_checkpoints[-1]
                 print(f"Found existing checkpoint: {latest}")
                 start_iteration = self.load_checkpoint(str(latest))
+                print(f"Auto-resuming from iteration {start_iteration}")
+            elif final_checkpoint.exists():
+                print(f"Found final checkpoint: {final_checkpoint}")
+                start_iteration = self.load_checkpoint(str(final_checkpoint))
                 print(f"Auto-resuming from iteration {start_iteration}")
 
         # LR scheduler
