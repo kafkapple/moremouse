@@ -535,6 +535,7 @@ class GaussianAvatarTrainer:
         scale: torch.Tensor = None,
         world_scale: float = 1.0,
         world_trans: torch.Tensor = None,
+        world_rot: torch.Tensor = None,
     ) -> Dict[str, float]:
         """
         Single training step with full loss function.
@@ -552,6 +553,7 @@ class GaussianAvatarTrainer:
             scale: [B, 1] global scale (from MAMMAL)
             world_scale: float, scale factor to convert model coords to world coords (e.g., 100 for mm)
             world_trans: [B, 3] global translation in world coords (from center_rotation.npz)
+            world_rot: [B] global rotation angle in radians (yaw around Y-axis)
 
         Returns:
             Dictionary of loss values
@@ -570,7 +572,27 @@ class GaussianAvatarTrainer:
             gaussian_params["means"] = gaussian_params["means"] * world_scale
             gaussian_params["scales"] = gaussian_params["scales"] * world_scale
 
-        # Apply world translation AFTER scaling (center is already in world coords)
+        # Apply world rotation AFTER scaling, BEFORE translation
+        # Rotation around Y-axis (vertical) for yaw/heading
+        if world_rot is not None:
+            angle = world_rot.to(self.device)
+            if angle.dim() == 0:
+                angle = angle.unsqueeze(0)
+            # Build rotation matrix for each batch element
+            cos_a = torch.cos(angle)  # [B]
+            sin_a = torch.sin(angle)  # [B]
+            # Y-axis rotation: [[cos, 0, sin], [0, 1, 0], [-sin, 0, cos]]
+            B = cos_a.shape[0]
+            R = torch.zeros(B, 3, 3, device=self.device)
+            R[:, 0, 0] = cos_a
+            R[:, 0, 2] = sin_a
+            R[:, 1, 1] = 1.0
+            R[:, 2, 0] = -sin_a
+            R[:, 2, 2] = cos_a
+            # Apply rotation: means [B, N, 3] @ R.T [B, 3, 3] -> [B, N, 3]
+            gaussian_params["means"] = torch.bmm(gaussian_params["means"], R.transpose(1, 2))
+
+        # Apply world translation AFTER scaling and rotation
         if world_trans is not None:
             gaussian_params["means"] = gaussian_params["means"] + world_trans.to(self.device).unsqueeze(1)
         rgb, alpha = self.avatar.render(
@@ -774,13 +796,19 @@ class GaussianAvatarTrainer:
                 # So we need to convert: meters * 100 = cm
                 center = global_transform["center"] * 100.0  # m -> cm
                 world_trans = center.unsqueeze(0) if center.dim() == 1 else center
+
+            # Extract angle (global rotation) from center_rotation.npz
+            world_rot = None
+            if gt_valid and global_transform.get("angle") is not None:
+                angle = global_transform["angle"]
+                world_rot = angle.unsqueeze(0) if angle.dim() == 0 else angle
             # Note: mammal_global T is in pixel coords, not directly usable for 3D translation
 
-            # Training step with world_scale and world_trans
+            # Training step with world_scale, world_trans, and world_rot
             losses = self.train_step(
                 pose, target_images, viewmat, K, W, H,
                 trans=None, scale=None, world_scale=self._world_scale,
-                world_trans=world_trans
+                world_trans=world_trans, world_rot=world_rot
             )
             scheduler.step()
 
@@ -812,6 +840,7 @@ class GaussianAvatarTrainer:
                     pose[:1], target_images[:1], viewmat[:1], K[:1], W, H,
                     vis_dir / f"iter_{iteration + 1:06d}.png",
                     world_trans=world_trans[:1] if world_trans is not None else None,
+                    world_rot=world_rot[:1] if world_rot is not None else None,
                 )
 
             # Checkpoint
@@ -835,6 +864,7 @@ class GaussianAvatarTrainer:
         height: int,
         save_path,
         world_trans: torch.Tensor = None,
+        world_rot: torch.Tensor = None,
     ):
         """Save visualization comparing prediction and target with keypoint overlay."""
         import cv2
@@ -859,7 +889,24 @@ class GaussianAvatarTrainer:
                 gaussian_params["scales"] = gaussian_params["scales"] * world_scale
                 joints_3d = joints_3d * world_scale
 
-            # Apply world translation AFTER scaling (same as train_step)
+            # Apply world rotation AFTER scaling, BEFORE translation
+            if world_rot is not None:
+                angle = world_rot.to(self.device)
+                if angle.dim() == 0:
+                    angle = angle.unsqueeze(0)
+                cos_a = torch.cos(angle)
+                sin_a = torch.sin(angle)
+                B = cos_a.shape[0]
+                R = torch.zeros(B, 3, 3, device=self.device)
+                R[:, 0, 0] = cos_a
+                R[:, 0, 2] = sin_a
+                R[:, 1, 1] = 1.0
+                R[:, 2, 0] = -sin_a
+                R[:, 2, 2] = cos_a
+                gaussian_params["means"] = torch.bmm(gaussian_params["means"], R.transpose(1, 2))
+                joints_3d = torch.bmm(joints_3d, R.transpose(1, 2))
+
+            # Apply world translation AFTER scaling and rotation
             if world_trans is not None:
                 world_trans_device = world_trans.to(self.device)
                 gaussian_params["means"] = gaussian_params["means"] + world_trans_device.unsqueeze(1)
