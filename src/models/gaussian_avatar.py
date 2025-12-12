@@ -797,6 +797,9 @@ class GaussianAvatarTrainer:
 
             # Visualization
             if (iteration + 1) % vis_freq == 0:
+                # Debug: log pose stats before visualization
+                pose_nonzero = (pose[0].abs() > 0.01).sum().item()
+                print(f"\n[DEBUG] Vis at iter {iteration+1}: pose nonzero={pose_nonzero}/420")
                 self._save_visualization(
                     pose[:1], target_images[:1], viewmat[:1], K[:1], W, H,
                     vis_dir / f"iter_{iteration + 1:06d}.png",
