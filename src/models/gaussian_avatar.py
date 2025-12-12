@@ -573,7 +573,8 @@ class GaussianAvatarTrainer:
             gaussian_params["scales"] = gaussian_params["scales"] * world_scale
 
         # Apply world rotation AFTER scaling, BEFORE translation
-        # Rotation around Y-axis (vertical) for yaw/heading
+        # Based on coordinate system analysis: X has smallest std (3.6cm), likely vertical
+        # So rotation should be around X-axis for yaw/heading on YZ ground plane
         if world_rot is not None:
             angle = world_rot.to(self.device)
             if angle.dim() == 0:
@@ -581,13 +582,13 @@ class GaussianAvatarTrainer:
             # Build rotation matrix for each batch element
             cos_a = torch.cos(angle)  # [B]
             sin_a = torch.sin(angle)  # [B]
-            # Y-axis rotation: [[cos, 0, sin], [0, 1, 0], [-sin, 0, cos]]
+            # X-axis rotation: [[1, 0, 0], [0, cos, -sin], [0, sin, cos]]
             B = cos_a.shape[0]
             R = torch.zeros(B, 3, 3, device=self.device)
-            R[:, 0, 0] = cos_a
-            R[:, 0, 2] = sin_a
-            R[:, 1, 1] = 1.0
-            R[:, 2, 0] = -sin_a
+            R[:, 0, 0] = 1.0
+            R[:, 1, 1] = cos_a
+            R[:, 1, 2] = -sin_a
+            R[:, 2, 1] = sin_a
             R[:, 2, 2] = cos_a
             # Apply rotation: means [B, N, 3] @ R.T [B, 3, 3] -> [B, N, 3]
             gaussian_params["means"] = torch.bmm(gaussian_params["means"], R.transpose(1, 2))
@@ -890,6 +891,7 @@ class GaussianAvatarTrainer:
                 joints_3d = joints_3d * world_scale
 
             # Apply world rotation AFTER scaling, BEFORE translation
+            # X-axis rotation for yaw/heading (matching train_step)
             if world_rot is not None:
                 angle = world_rot.to(self.device)
                 if angle.dim() == 0:
@@ -898,10 +900,10 @@ class GaussianAvatarTrainer:
                 sin_a = torch.sin(angle)
                 B = cos_a.shape[0]
                 R = torch.zeros(B, 3, 3, device=self.device)
-                R[:, 0, 0] = cos_a
-                R[:, 0, 2] = sin_a
-                R[:, 1, 1] = 1.0
-                R[:, 2, 0] = -sin_a
+                R[:, 0, 0] = 1.0
+                R[:, 1, 1] = cos_a
+                R[:, 1, 2] = -sin_a
+                R[:, 2, 1] = sin_a
                 R[:, 2, 2] = cos_a
                 gaussian_params["means"] = torch.bmm(gaussian_params["means"], R.transpose(1, 2))
                 joints_3d = torch.bmm(joints_3d, R.transpose(1, 2))
