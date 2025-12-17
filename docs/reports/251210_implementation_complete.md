@@ -394,9 +394,73 @@ moremouse/
 
 ---
 
-## 10. Key Technical Features
+## 10. Pose Data & Avatar Rendering
 
-### 10.1 Memory Optimization
+### 10.1 MAMMAL Fitting Results Location
+
+MAMMAL 포즈 추정 결과는 다음 위치에 저장됩니다:
+
+```
+/home/joon/MAMMAL_mouse/results/fitting/<experiment_name>/params/
+├── step_1_frame_000000.pkl
+├── step_1_frame_000001.pkl
+└── ... (프레임별 포즈 파라미터)
+```
+
+**포즈 파일 형식 (.pkl)**:
+| Key | Shape | Description |
+|-----|-------|-------------|
+| `thetas` | `[1, 140, 3]` | Joint rotations (axis-angle) |
+| `trans` | `[1, 3]` | Global translation |
+| `rotation` | `[1, 3]` | Global rotation |
+| `bone_lengths` | `[1, 20]` | Bone lengths |
+| `scale` | `[1, 1]` | Scale factor |
+
+### 10.2 Avatar Rendering Commands
+
+```bash
+# Rest pose (default)
+python scripts/render_avatar.py \
+    --avatar-checkpoint checkpoints/avatar/avatar_final.pt \
+    --mouse-model /home/joon/MAMMAL_mouse/mouse_model \
+    --output-dir results/avatar_renders \
+    --radius 800
+
+# Single pose from MAMMAL fitting result
+python scripts/render_avatar.py \
+    --avatar-checkpoint checkpoints/avatar/avatar_final.pt \
+    --mouse-model /home/joon/MAMMAL_mouse/mouse_model \
+    --pose-file /home/joon/MAMMAL_mouse/results/fitting/markerless_mouse_1_nerf_v012345_kp22_20251206_165254/params/step_1_frame_000000.pkl \
+    --output-dir results/avatar_renders
+
+# Animation sequence from pose directory
+python scripts/render_avatar.py \
+    --avatar-checkpoint checkpoints/avatar/avatar_final.pt \
+    --mouse-model /home/joon/MAMMAL_mouse/mouse_model \
+    --pose-dir /home/joon/MAMMAL_mouse/results/fitting/markerless_mouse_1_nerf_v012345_kp22_20251206_165254/params/ \
+    --output-dir results/avatar_animation \
+    --video
+
+# 360° rotation video
+python scripts/render_avatar.py \
+    --avatar-checkpoint checkpoints/avatar/avatar_final.pt \
+    --mouse-model /home/joon/MAMMAL_mouse/mouse_model \
+    --num-views 72 \
+    --output-dir results/avatar_renders \
+    --video
+```
+
+### 10.3 Coordinate System Notes
+
+- **Body model**: Y-up coordinate system (MAMMAL convention)
+- **Rendering**: Z-up coordinate system (converted via -90° X rotation)
+- **world_scale**: 160.0 (model coords ~0.5m → world coords ~80mm)
+
+---
+
+## 11. Key Technical Features
+
+### 11.1 Memory Optimization
 - **Flash Attention**: O(n) memory for triplane generation via `F.scaled_dot_product_attention`
 - **Chunked Rendering**: 4096 rays per chunk to fit in GPU memory
 - **Video Reader LRU Cache**: Efficient frame caching (100 frames default)
