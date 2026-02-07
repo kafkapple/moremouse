@@ -1,0 +1,68 @@
+# MoReMouse Tiny Configuration (Minimal Memory)
+# For testing and debugging - sacrifices quality for memory
+
+# Image encoder: Use smaller DINOv2-S instead of DINOv2-B
+encoder:
+  name: dinov2_vits14          # Small variant (384-dim vs 768-dim)
+  pretrained: true
+  freeze: true
+  input_size: 224              # Smaller input (224 vs 378)
+  feature_dim: 384             # Smaller features
+
+# Triplane representation (MINIMAL)
+triplane:
+  resolution: 32               # Minimal (32 vs 128)
+  internal_resolution: 16      # Minimal
+  channels: 128                # Minimal (128 vs 512)
+  output_channels: 32          # Minimal (32 vs 80)
+  num_planes: 3
+
+# Transformer decoder (MINIMAL)
+transformer:
+  num_layers: 4                # Minimal (4 vs 12)
+  num_heads: 4                 # Minimal (4 vs 16)
+  head_dim: 32                 # Minimal
+  cross_attn_dim: 384          # Match encoder
+  mlp_dim: 512                 # Minimal
+  dropout: 0.1
+
+# MultiHead MLP decoder (MINIMAL)
+mlp_decoder:
+  hidden_layers: 4             # Minimal (4 vs 10)
+  hidden_dim: 32               # Minimal (32 vs 64)
+  output_channels:
+    rgb: 3
+    density: 1
+    embedding: 3
+
+# NeRF stage settings (MINIMAL)
+nerf:
+  num_samples: 24              # Minimal (24 vs 128)
+  radius: 0.87
+  density_activation: trunc_exp
+  near: 0.1
+  far: 4.0
+
+# DMTet stage settings (MINIMAL)
+dmtet:
+  sdf_bias: -4.0
+  grid_resolution: 64
+  marching_cubes_resolution: 64
+
+# Gaussian Avatar settings
+avatar:
+  num_gaussians_per_vertex: 1
+  num_vertices: 13059
+  num_joints: 140
+  uv_resolution: 256
+  gaussian_params:
+    init_scale: 0.01
+    min_scale: 0.001
+    max_scale: 0.1
+    opacity_init: 0.8
+
+# Geodesic embedding
+geodesic:
+  embedding_dim: 3
+  num_anchor_points: 50
+  use_pca: true

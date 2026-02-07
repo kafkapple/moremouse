@@ -45,18 +45,31 @@ class DINOv2Encoder(nn.Module):
         self.input_size = input_size
         self.freeze = freeze
 
-        # Load DINOv2 model
+        # Load DINOv2 model via torch.hub
+        # Note: Requires internet connection on first run to download weights
         try:
             self.encoder = torch.hub.load(
                 'facebookresearch/dinov2',
                 model_name,
                 pretrained=True,
             )
+            self._use_transformers = False
         except Exception as e:
-            # Fallback: use transformers library
-            print(f"torch.hub failed: {e}")
-            print("Trying transformers library...")
-            self._load_from_transformers()
+            print(f"Warning: torch.hub load failed: {e}")
+            print("Attempting offline cache or manual load...")
+            # Try loading from local cache
+            try:
+                self.encoder = torch.hub.load(
+                    'facebookresearch/dinov2',
+                    model_name,
+                    pretrained=True,
+                    source='local',
+                )
+                self._use_transformers = False
+            except Exception as e2:
+                print(f"Local load also failed: {e2}")
+                # Last resort: use timm if available
+                self._load_from_timm()
 
         self.feature_dim = self.encoder.embed_dim
 
@@ -64,25 +77,38 @@ class DINOv2Encoder(nn.Module):
             for param in self.encoder.parameters():
                 param.requires_grad = False
 
-    def _load_from_transformers(self):
-        """Load DINOv2 from transformers library."""
+    def _load_from_timm(self):
+        """Load DINOv2 from timm library (PyTorch 2.0 compatible)."""
         try:
-            from transformers import Dinov2Model
+            import timm
 
-            model_map = {
-                "dinov2_vits14": "facebook/dinov2-small",
-                "dinov2_vitb14": "facebook/dinov2-base",
-                "dinov2_vitl14": "facebook/dinov2-large",
-                "dinov2_vitg14": "facebook/dinov2-giant",
+            # timm model names for DINOv2
+            timm_model_map = {
+                "dinov2_vits14": "vit_small_patch14_dinov2.lvd142m",
+                "dinov2_vitb14": "vit_base_patch14_dinov2.lvd142m",
+                "dinov2_vitl14": "vit_large_patch14_dinov2.lvd142m",
+                "dinov2_vitg14": "vit_giant_patch14_dinov2.lvd142m",
             }
 
-            model_id = model_map.get(self.model_name, "facebook/dinov2-base")
-            self.encoder = Dinov2Model.from_pretrained(model_id)
-            self._use_transformers = True
+            timm_name = timm_model_map.get(self.model_name, "vit_base_patch14_dinov2.lvd142m")
+            print(f"Loading DINOv2 via timm: {timm_name}")
+
+            self.encoder = timm.create_model(timm_name, pretrained=True)
+            self._use_timm = True
+            self._use_transformers = False
+
+            # timm models have different attribute names
+            if hasattr(self.encoder, 'embed_dim'):
+                pass  # Good, has embed_dim
+            elif hasattr(self.encoder, 'num_features'):
+                self.encoder.embed_dim = self.encoder.num_features
+            else:
+                # Default for ViT-B
+                self.encoder.embed_dim = 768
+
         except ImportError:
             raise ImportError(
-                "Neither torch.hub nor transformers could load DINOv2. "
-                "Install transformers: pip install transformers"
+                "Failed to load DINOv2. Please install timm: pip install timm"
             )
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
@@ -109,7 +135,13 @@ class DINOv2Encoder(nn.Module):
                 align_corners=False,
             )
 
-        if hasattr(self, '_use_transformers') and self._use_transformers:
+        if hasattr(self, '_use_timm') and self._use_timm:
+            # timm DINOv2
+            features = self.encoder.forward_features(images)
+            # timm returns [B, N+1, D] with CLS token first
+            if features.dim() == 3 and features.shape[1] > 1:
+                features = features[:, 1:]  # Remove CLS token
+        elif hasattr(self, '_use_transformers') and self._use_transformers:
             outputs = self.encoder(images, return_dict=True)
             features = outputs.last_hidden_state[:, 1:]  # Remove CLS token
         else:

@@ -47,6 +47,20 @@ class GeodesicLoss(nn.Module):
             pred_embedding: [B, H, W, D]
             target_embedding: [B, H, W, D]
         """
+        # Handle size mismatch (e.g., model output 224x224, target 378x378)
+        if pred_embedding.shape != target_embedding.shape:
+            # Resize target to match prediction size
+            if pred_embedding.dim() == 4:  # [B, H, W, D]
+                # Permute to [B, D, H, W] for interpolation
+                target_embedding = target_embedding.permute(0, 3, 1, 2)
+                target_embedding = F.interpolate(
+                    target_embedding,
+                    size=pred_embedding.shape[1:3],  # H, W
+                    mode='bilinear',
+                    align_corners=False,
+                )
+                target_embedding = target_embedding.permute(0, 2, 3, 1)
+
         # Simple MSE between embeddings
         loss = F.mse_loss(pred_embedding, target_embedding)
 

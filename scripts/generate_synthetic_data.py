@@ -173,6 +173,7 @@ def render_mesh_fallback(
 def generate_data(
     output_dir: Path,
     mouse_model_path: Path,
+    avatar: GaussianAvatar = None,
     num_frames: int = 6000,
     num_views: int = 64,
     image_size: int = 800,
@@ -184,6 +185,7 @@ def generate_data(
     Args:
         output_dir: Output directory
         mouse_model_path: Path to mouse model
+        avatar: Pre-trained GaussianAvatar (if None, creates untrained one)
         num_frames: Number of frames to generate
         num_views: Number of views per frame
         image_size: Image resolution
@@ -197,12 +199,16 @@ def generate_data(
     print("Loading mouse model...")
     body_model = load_mouse_model(mouse_model_path, device=device)
 
-    # Create Gaussian avatar
-    print("Creating Gaussian avatar...")
-    avatar = GaussianAvatar(
-        body_model=body_model,
-        num_gaussians_per_vertex=1,
-    ).to(device)
+    # Use provided avatar or create new one
+    if avatar is not None:
+        print("Using pre-trained Gaussian avatar...")
+        avatar = avatar.to(device)
+    else:
+        print("Warning: No avatar provided. Creating untrained Gaussian avatar (gray)...")
+        avatar = GaussianAvatar(
+            body_model=body_model,
+            num_gaussians_per_vertex=1,
+        ).to(device)
 
     # Create geodesic embedding
     print("Computing geodesic embedding...")
@@ -312,7 +318,7 @@ def _generate_split(
             rgb, alpha = avatar.render(
                 gaussian_params, viewmat, K_tensor, image_size, image_size
             )
-            input_img = rgb[0].cpu().numpy()
+            input_img = rgb[0].detach().cpu().numpy()
             input_img = (input_img * 255).astype(np.uint8)
             cv2.imwrite(str(frame_dir / "input.png"), cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR))
         except Exception as e:
@@ -331,7 +337,7 @@ def _generate_split(
                 rgb, alpha = avatar.render(
                     gaussian_params, viewmat, K_tensor, image_size, image_size
                 )
-                view_img = rgb[0].cpu().numpy()
+                view_img = rgb[0].detach().cpu().numpy()
                 view_img = (view_img * 255).astype(np.uint8)
                 cv2.imwrite(
                     str(frame_dir / f"view_{v_idx:02d}.png"),

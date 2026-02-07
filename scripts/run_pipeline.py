@@ -67,6 +67,16 @@ def train_avatar(args):
     # Load data
     print(f"Loading multi-view data from {args.data_dir}...")
     print(f"Using pose data from {args.pose_dir}...")
+
+    # Check if canonical mode
+    canonical_mode = getattr(args, 'canonical', False)
+    if canonical_mode:
+        print("\n[Canonical Mode] Using MoReMouse paper method:")
+        print("  - Image crop around mouse centroid")
+        print("  - Mesh scaled by 1/180 to fit in unit sphere")
+        print("  - Ψ_g = 0 (no global transform)")
+        print("  - Synthetic cameras on sphere (radius 2.22)\n")
+
     dataloader = create_mammal_dataloader(
         args.data_dir,
         batch_size=1,  # Multi-view, so batch_size=1 means 1 frame with all views
@@ -75,6 +85,7 @@ def train_avatar(args):
         image_size=args.avatar_image_size,  # Paper: 800x800 for avatar
         pose_dir=args.pose_dir,  # MAMMAL pose estimation results
         require_pose=True,  # Only load frames with valid non-zero pose data
+        canonical_space=canonical_mode,  # Use CanonicalSpaceDataset if enabled
     )
 
     # Train (with auto-resume support)
@@ -87,6 +98,7 @@ def train_avatar(args):
         save_freq=args.save_freq,
         vis_freq=args.vis_freq,
         resume_from=args.resume,  # None = auto-detect latest checkpoint
+        canonical_mode=canonical_mode,  # Enable canonical space training
     )
 
     print(f"\nAvatar training complete!")
@@ -137,6 +149,7 @@ def generate_synthetic(args):
     generate_data(
         output_dir=output_dir,
         mouse_model_path=Path(args.mouse_model),
+        avatar=avatar,  # Pass trained avatar
         num_frames=args.num_frames,
         num_views=args.num_views,
         image_size=args.image_size,
@@ -325,6 +338,9 @@ def main():
                        help="Pre-trained avatar checkpoint for synthetic data generation")
     parser.add_argument("--resume", type=str, default=None,
                        help="Resume training from checkpoint (auto-detects latest if not specified)")
+    parser.add_argument("--canonical", action="store_true",
+                       help="Use canonical space mode (MoReMouse paper method): "
+                            "mesh scaled 1/180, Ψ_g=0, synthetic cameras on sphere")
 
     # Synthetic data generation
     parser.add_argument("--synthetic-output", type=str, default="data/synthetic")

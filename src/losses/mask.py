@@ -38,9 +38,13 @@ class MaskLoss(nn.Module):
                 mode='nearest',
             ).squeeze(1)
 
-        # BCE loss
-        loss = F.binary_cross_entropy(
-            pred_alpha.clamp(1e-7, 1 - 1e-7),
+        # Convert to logits for AMP compatibility
+        # Use binary_cross_entropy_with_logits (safe for autocast)
+        pred_clamped = pred_alpha.clamp(1e-7, 1 - 1e-7)
+        pred_logits = torch.log(pred_clamped / (1 - pred_clamped))  # inverse sigmoid
+
+        loss = F.binary_cross_entropy_with_logits(
+            pred_logits,
             target_mask.float(),
             reduction=self.reduction,
         )

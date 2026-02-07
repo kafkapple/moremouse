@@ -158,9 +158,9 @@ class GaussianAvatar(nn.Module):
             nn.Parameter(position_offsets)
         )
 
-        # RGB colors (before sigmoid) - initialize with small variation
-        # This gives initial colors around 0.5 with slight variation
-        colors_raw = torch.randn(self.num_gaussians, 3) * 0.1
+        # RGB colors (before sigmoid) - initialize to dark color (mouse ~0.15-0.2)
+        # sigmoid(-1.7) ≈ 0.15, which matches typical mouse color
+        colors_raw = torch.randn(self.num_gaussians, 3) * 0.1 - 1.7
         self.register_parameter(
             "colors_raw",
             nn.Parameter(colors_raw)
@@ -442,8 +442,16 @@ class GaussianAvatarTrainer:
         pred: torch.Tensor,
         target: torch.Tensor,
         window_size: int = 11,
+        mask: torch.Tensor = None,
     ) -> torch.Tensor:
-        """Compute SSIM loss."""
+        """Compute SSIM loss with optional mask.
+
+        Args:
+            pred: [B, H, W, 3] predicted images
+            target: [B, H, W, 3] target images
+            window_size: SSIM window size
+            mask: [B, H, W, 1] optional mask (1=foreground, 0=background)
+        """
         # Simple SSIM implementation
         C1 = 0.01 ** 2
         C2 = 0.03 ** 2
@@ -466,7 +474,15 @@ class GaussianAvatarTrainer:
         ssim = ((2 * mu_pred_target + C1) * (2 * sigma_pred_target + C2)) / \
                ((mu_pred_sq + mu_target_sq + C1) * (sigma_pred_sq + sigma_target_sq + C2))
 
-        return 1 - ssim.mean()
+        # Apply mask if provided
+        if mask is not None:
+            # mask: [B, H, W, 1] -> [B, 1, H, W] for broadcasting with [B, C, H, W]
+            mask_bchw = mask.permute(0, 3, 1, 2)
+            ssim_loss = 1 - ssim  # Convert to loss
+            masked_loss = (ssim_loss * mask_bchw).sum() / (mask_bchw.sum() + 1e-6)
+            return masked_loss
+        else:
+            return 1 - ssim.mean()
 
     def compute_tv_loss(self) -> torch.Tensor:
         """
@@ -523,6 +539,26 @@ class GaussianAvatarTrainer:
 
         return surface_loss
 
+    def _quaternion_multiply(self, q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
+        """
+        Multiply two quaternions (Hamilton product).
+
+        Args:
+            q1, q2: [N, 4] quaternions in (w, x, y, z) format
+
+        Returns:
+            [N, 4] product quaternion q1 * q2
+        """
+        w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
+        w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
+
+        w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+        x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+        y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
+        z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+
+        return torch.stack([w, x, y, z], dim=-1)
+
     def train_step(
         self,
         pose: torch.Tensor,
@@ -535,7 +571,8 @@ class GaussianAvatarTrainer:
         scale: torch.Tensor = None,
         world_scale: float = 1.0,
         world_trans: torch.Tensor = None,
-        world_rot: torch.Tensor = None,
+        yaw_angle: torch.Tensor = None,
+        masks: torch.Tensor = None,
     ) -> Dict[str, float]:
         """
         Single training step with full loss function.
@@ -553,7 +590,8 @@ class GaussianAvatarTrainer:
             scale: [B, 1] global scale (from MAMMAL)
             world_scale: float, scale factor to convert model coords to world coords (e.g., 100 for mm)
             world_trans: [B, 3] global translation in world coords (from center_rotation.npz)
-            world_rot: [B] global rotation angle in radians (yaw around Y-axis)
+            yaw_angle: [B] yaw rotation angle in radians (Z-axis rotation from center_rotation.npz)
+            masks: [B, H, W] segmentation masks (1=foreground, 0=background)
 
         Returns:
             Dictionary of loss values
@@ -572,26 +610,65 @@ class GaussianAvatarTrainer:
             gaussian_params["means"] = gaussian_params["means"] * world_scale
             gaussian_params["scales"] = gaussian_params["scales"] * world_scale
 
-        # Apply world rotation AFTER scaling, BEFORE translation
-        # Based on coordinate system analysis: X has smallest std (3.6cm), likely vertical
-        # So rotation should be around X-axis for yaw/heading on YZ ground plane
-        if world_rot is not None:
-            angle = world_rot.to(self.device)
-            if angle.dim() == 0:
-                angle = angle.unsqueeze(0)
-            # Build rotation matrix for each batch element
-            cos_a = torch.cos(angle)  # [B]
-            sin_a = torch.sin(angle)  # [B]
-            # X-axis rotation: [[1, 0, 0], [0, cos, -sin], [0, sin, cos]]
-            B = cos_a.shape[0]
-            R = torch.zeros(B, 3, 3, device=self.device)
-            R[:, 0, 0] = 1.0
-            R[:, 1, 1] = cos_a
-            R[:, 1, 2] = -sin_a
-            R[:, 2, 1] = sin_a
-            R[:, 2, 2] = cos_a
-            # Apply rotation: means [B, N, 3] @ R.T [B, 3, 3] -> [B, N, 3]
-            gaussian_params["means"] = torch.bmm(gaussian_params["means"], R.transpose(1, 2))
+        # Apply base rotation: Body model is Y-up, but camera world is Z-up
+        # Rotate -90 degrees around X axis: Y -> Z, Z -> -Y
+        # R_x(-90) = [[1, 0, 0], [0, 0, 1], [0, -1, 0]]
+        means = gaussian_params["means"]  # [B, N, 3]
+        x, y, z = means[..., 0], means[..., 1], means[..., 2]
+        # After rotation: x' = x, y' = z, z' = -y
+        gaussian_params["means"] = torch.stack([x, z, -y], dim=-1)
+
+        # Also rotate quaternions for base rotation
+        rotations = gaussian_params["rotations"]  # [B, N, 4] (w, x, y, z)
+        # Quaternion for -90 deg X rotation: (cos(-45), sin(-45), 0, 0) = (0.7071, -0.7071, 0, 0)
+        import math
+        base_quat = torch.tensor([math.cos(-math.pi/4), math.sin(-math.pi/4), 0, 0],
+                                  dtype=rotations.dtype, device=rotations.device)
+        base_quat = base_quat.view(1, 1, 4).expand(rotations.shape[0], rotations.shape[1], 4)
+        gaussian_params["rotations"] = self._quaternion_multiply(base_quat, rotations)
+
+        # Apply yaw rotation (Z-axis rotation from center_rotation.npz)
+        # Order: scale -> base_rotation -> yaw_rotation -> translate
+        if yaw_angle is not None:
+            # Build Z-axis rotation matrix from yaw angle [B]
+            yaw = yaw_angle.to(self.device)
+            B = yaw.shape[0]
+            cos_a = torch.cos(yaw)  # [B]
+            sin_a = torch.sin(yaw)  # [B]
+            zeros = torch.zeros_like(cos_a)
+            ones = torch.ones_like(cos_a)
+
+            # R_z = [[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]]
+            R = torch.stack([
+                torch.stack([cos_a, -sin_a, zeros], dim=-1),
+                torch.stack([sin_a, cos_a, zeros], dim=-1),
+                torch.stack([zeros, zeros, ones], dim=-1),
+            ], dim=-2)  # [B, 3, 3]
+
+            # Rotate gaussian means: [B, N, 3] @ [B, 3, 3].T -> [B, N, 3]
+            means = gaussian_params["means"]  # [B, N, 3]
+            rotated_means = torch.einsum('bni,bji->bnj', means, R)  # R^T @ means
+            gaussian_params["means"] = rotated_means
+
+            # Rotate gaussian quaternions: apply R_z to each quaternion
+            # For Z-axis rotation, quaternion is [cos(θ/2), 0, 0, sin(θ/2)]
+            rotations = gaussian_params["rotations"]  # [B, N, 4]
+            N = rotations.shape[1]
+
+            half_angle = yaw / 2.0  # [B]
+            R_quat_wxyz = torch.stack([
+                torch.cos(half_angle),
+                torch.zeros_like(half_angle),
+                torch.zeros_like(half_angle),
+                torch.sin(half_angle),
+            ], dim=-1)  # [B, 4] in (w, x, y, z) format
+
+            for b in range(B):
+                q_old = rotations[b]  # [N, 4]
+                q_new = self._quaternion_multiply(
+                    R_quat_wxyz[b:b+1].expand(N, -1), q_old
+                )
+                gaussian_params["rotations"][b] = q_new
 
         # Apply world translation AFTER scaling and rotation
         if world_trans is not None:
@@ -606,11 +683,22 @@ class GaussianAvatarTrainer:
 
         target = target_images.to(self.device)
 
-        # L1 loss (primary reconstruction)
-        l1_loss = F.l1_loss(rgb, target)
+        # Prepare mask for loss computation
+        # masks: [B, H, W] -> [B, H, W, 1] for broadcasting with [B, H, W, 3]
+        if masks is not None:
+            mask = masks.to(self.device).unsqueeze(-1)  # [B, H, W, 1]
+            mask_sum = mask.sum() + 1e-6  # Avoid division by zero
+        else:
+            mask = None
 
-        # SSIM loss (structural similarity)
-        ssim_loss = self.compute_ssim(rgb, target)
+        # L1 loss (primary reconstruction) - masked if available
+        if mask is not None:
+            l1_loss = (torch.abs(rgb - target) * mask).sum() / mask_sum
+        else:
+            l1_loss = F.l1_loss(rgb, target)
+
+        # SSIM loss (structural similarity) - masked if available
+        ssim_loss = self.compute_ssim(rgb, target, mask=mask)
 
         # LPIPS loss (perceptual)
         if self.lpips_fn is not None:
@@ -664,6 +752,7 @@ class GaussianAvatarTrainer:
         vis_dir: str = "outputs/avatar_vis",
         resume_from: str = None,
         world_scale: float = None,
+        canonical_mode: bool = False,
     ):
         """
         Full training loop for Gaussian Avatar.
@@ -679,6 +768,10 @@ class GaussianAvatarTrainer:
             resume_from: Path to checkpoint to resume from (optional)
             world_scale: Scale factor to convert model coords to camera coords.
                          If None, auto-compute from camera positions.
+            canonical_mode: If True, use MoReMouse canonical space (Ψ_g = 0)
+                           - Mesh scaled by 1/180 to fit in unit sphere
+                           - No global transform (translation, rotation)
+                           - Synthetic cameras on sphere radius 2.22
         """
         from pathlib import Path
         from tqdm import tqdm
@@ -721,26 +814,23 @@ class GaussianAvatarTrainer:
         for _ in range(start_iteration):
             scheduler.step()
 
-        # Auto-compute world_scale from camera positions if not provided
-        if world_scale is None:
-            # Get camera positions from first batch
-            first_batch = next(iter(dataloader))
-            viewmats = first_batch["viewmats"]  # [B, num_cams, 4, 4]
-            # Camera position = -R^T @ t, where R is viewmat[:3,:3], t is viewmat[:3,3]
-            R = viewmats[0, 0, :3, :3]  # First camera rotation
-            t = viewmats[0, 0, :3, 3]   # First camera translation
-            cam_pos = -R.T @ t
-            cam_dist = cam_pos.norm().item()
+        # Store canonical mode flag
+        self._canonical_mode = canonical_mode
 
-            # Body model size is ~1 unit (T-pose spans ~1 meter)
-            # If camera is at ~200mm, scale = 200 (model meters -> camera mm)
-            # If camera is at ~2m, scale = 1 (both in meters)
-            if cam_dist > 10:  # Camera distance > 10 units = likely millimeters
-                world_scale = cam_dist / 3.0  # Mouse at ~1/3 of camera distance
-            else:
-                world_scale = 1.0  # Already in matching units
-
-            print(f"Auto-computed world_scale: {world_scale:.2f} (camera distance: {cam_dist:.2f})")
+        # Set world_scale based on mode
+        if canonical_mode:
+            # Canonical mode: mesh scaled by 1/180 to fit in unit sphere
+            # No global transform applied (Ψ_g = 0)
+            CANONICAL_MESH_SCALE = 1.0 / 180.0
+            world_scale = CANONICAL_MESH_SCALE
+            print(f"[Canonical Mode] Using mesh scale: {world_scale:.6f} (1/180)")
+            print(f"[Canonical Mode] Ψ_g = 0 (no global transform)")
+        elif world_scale is None:
+            # Calibrated via scripts/calibrate_grid_compare.py (2025-12-13)
+            # Best result: scale=160 with neg_yaw gives 119.6px error
+            # Procrustes analysis suggested scale ~160, which was verified by grid search
+            world_scale = 160.0  # Calibrated with Procrustes + grid search
+            print(f"Using calibrated world_scale: {world_scale:.2f}")
 
         self._world_scale = world_scale  # Store for visualization
 
@@ -768,6 +858,9 @@ class GaussianAvatarTrainer:
             pose = batch["pose"]  # [B, J*3] or None
             global_transform = batch.get("global_transform")  # Dict with center, angle
             mammal_global = batch.get("mammal_global")  # Dict with R, T, s
+            keypoints2d = batch.get("keypoints2d")  # [B, num_cams, 22, 3] or None
+            real_camera = batch.get("real_camera")  # Real MAMMAL camera for Option A
+            crop_info = batch.get("crop_info")  # Crop transform info for Option A
 
             B, num_cams = images.shape[:2]
             H, W = images.shape[2:4]
@@ -780,36 +873,67 @@ class GaussianAvatarTrainer:
             viewmat = viewmats[torch.arange(B), cam_idx]  # [B, 4, 4]
             K = Ks[torch.arange(B), cam_idx]  # [B, 3, 3]
 
+            # Select masks for selected camera (if available)
+            target_masks = None
+            if "masks" in batch and batch["masks"] is not None:
+                masks_all = batch["masks"]  # [B, num_cams, H, W]
+                target_masks = masks_all[torch.arange(B), cam_idx]  # [B, H, W]
+
+            # Select GT keypoints for selected camera
+            gt_keypoints2d = None
+            if keypoints2d is not None:
+                gt_keypoints2d = keypoints2d[torch.arange(B), cam_idx]  # [B, 22, 3]
+
             # Handle missing pose (use random)
             if pose is None or pose[0] is None:
                 pose = torch.randn(B, self.avatar.body_model.num_joints * 3) * 0.1
 
             # Extract world_trans from global_transform (center_rotation.npz)
-            # This is the 3D position in world coordinates (meters)
+            # In canonical mode: Ψ_g = 0, so no global transform is applied
             world_trans = None
-            gt_valid = global_transform.get("valid", torch.tensor(False)) if global_transform is not None else torch.tensor(False)
-            if isinstance(gt_valid, torch.Tensor):
-                gt_valid = gt_valid.any().item() if gt_valid.dim() > 0 else gt_valid.item()
+            yaw_angle = None
 
-            if gt_valid and global_transform.get("center") is not None:
-                # Use center from center_rotation.npz as world translation
-                # center_rotation.npz is in meters, camera coords are in cm
-                # So we need to convert: meters * 100 = cm
-                center = global_transform["center"] * 100.0  # m -> cm
-                world_trans = center.unsqueeze(0) if center.dim() == 1 else center
+            if not canonical_mode:
+                # Standard mode: use global transform from center_rotation.npz
+                gt_valid = global_transform.get("valid", torch.tensor(False)) if global_transform is not None else torch.tensor(False)
+                if isinstance(gt_valid, torch.Tensor):
+                    gt_valid = gt_valid.any().item() if gt_valid.dim() > 0 else gt_valid.item()
 
-            # Extract angle (global rotation) from center_rotation.npz
-            world_rot = None
-            if gt_valid and global_transform.get("angle") is not None:
-                angle = global_transform["angle"]
-                world_rot = angle.unsqueeze(0) if angle.dim() == 0 else angle
-            # Note: mammal_global T is in pixel coords, not directly usable for 3D translation
+                if gt_valid and global_transform.get("center") is not None:
+                    # Use center from center_rotation.npz as world translation
+                    # center_rotation.npz is in floor-aligned coordinates (meters)
+                    # Need to: 1) convert m -> cm, 2) add platform offset
+                    #
+                    # Platform offset (calibrated for markerless_mouse_1_nerf):
+                    # - The center_rotation origin is offset from camera world origin
+                    # - Calibrated via scripts/calibrate_transforms.py (2025-12-13)
+                    # - X offset: +140 cm (horizontal platform position - recalibrated with base rotation)
+                    # - Y offset: +0.1 cm (negligible)
+                    # - Z offset: +43.9 cm (platform height in world coords)
+                    PLATFORM_OFFSET = torch.tensor([140.0, 0.1, 43.9], dtype=torch.float32)
 
-            # Training step with world_scale, world_trans, and world_rot
+                    center = global_transform["center"].clone()
+                    center = center * 100.0  # meters -> cm (uniform conversion)
+                    center = center + PLATFORM_OFFSET.to(center.device)
+                    world_trans = center.unsqueeze(0) if center.dim() == 1 else center
+
+                # Extract yaw angle from global_transform (center_rotation.npz)
+                # This is the mouse's yaw rotation around Z-axis
+                # NOTE: Negate yaw angle - calibration shows MAMMAL's angle convention is opposite
+                # (calibrated via scripts/calibrate_grid_compare.py: neg_yaw gives 119.6px vs 137.9px)
+                if gt_valid and global_transform.get("angle") is not None:
+                    angle = global_transform["angle"]
+                    if isinstance(angle, torch.Tensor):
+                        yaw_angle = -angle.unsqueeze(0) if angle.dim() == 0 else -angle  # [1], negated
+                    else:
+                        yaw_angle = torch.tensor([-angle], dtype=torch.float32)  # negated
+
+            # Training step with world_scale, world_trans, yaw_angle, and masks
             losses = self.train_step(
                 pose, target_images, viewmat, K, W, H,
                 trans=None, scale=None, world_scale=self._world_scale,
-                world_trans=world_trans, world_rot=world_rot
+                world_trans=world_trans, yaw_angle=yaw_angle,
+                masks=target_masks
             )
             scheduler.step()
 
@@ -841,7 +965,11 @@ class GaussianAvatarTrainer:
                     pose[:1], target_images[:1], viewmat[:1], K[:1], W, H,
                     vis_dir / f"iter_{iteration + 1:06d}.png",
                     world_trans=world_trans[:1] if world_trans is not None else None,
-                    world_rot=world_rot[:1] if world_rot is not None else None,
+                    yaw_angle=yaw_angle[:1] if yaw_angle is not None else None,
+                    mammal_global=mammal_global,
+                    gt_keypoints2d=gt_keypoints2d[0] if gt_keypoints2d is not None else None,
+                    real_camera=real_camera,  # Option A: MAMMAL camera for real projection
+                    crop_info=crop_info,  # Option A: Crop transform
                 )
 
             # Checkpoint
@@ -865,14 +993,29 @@ class GaussianAvatarTrainer:
         height: int,
         save_path,
         world_trans: torch.Tensor = None,
-        world_rot: torch.Tensor = None,
+        yaw_angle: torch.Tensor = None,
+        mammal_global: dict = None,
+        gt_keypoints2d: torch.Tensor = None,  # [22, 3] GT 2D keypoints (x, y, conf)
+        real_camera: dict = None,  # Real MAMMAL camera params for Option A projection
+        crop_info: dict = None,  # Crop transform info for Option A projection
     ):
-        """Save visualization comparing prediction and target with keypoint overlay."""
+        """Save visualization comparing prediction and target with keypoint overlay.
+
+        Visualization layout:
+        - Left (Rendered): Model keypoints (multi-color, projected from 3D)
+        - Right (GT): GT 2D keypoints (green, from detector)
+
+        Option A (MoReMouse original):
+        If real_camera and crop_info are provided, model keypoints in Panel 3
+        are projected using real MAMMAL camera and crop transform, showing
+        actual pose estimation error without Procrustes alignment.
+        """
         import cv2
         from pathlib import Path
 
         self.avatar.eval()
         world_scale = getattr(self, '_world_scale', 1.0)
+        canonical_mode = getattr(self, '_canonical_mode', False)
 
         with torch.no_grad():
             gaussian_params = self.avatar(
@@ -884,35 +1027,104 @@ class GaussianAvatarTrainer:
             # Get joint positions from body model (after forward pass)
             joints_3d = self.avatar.body_model._J_posed  # [B, J, 3]
 
-            # Apply world_scale to joints and gaussians
-            if world_scale != 1.0:
-                gaussian_params["means"] = gaussian_params["means"] * world_scale
-                gaussian_params["scales"] = gaussian_params["scales"] * world_scale
-                joints_3d = joints_3d * world_scale
+            # In canonical mode, skip all transforms (mesh is already in canonical space)
+            if canonical_mode:
+                # Canonical mode: mesh already scaled by 1/180, camera is synthetic
+                # Just apply base rotation for Y-up to Z-up conversion
+                means = gaussian_params["means"]  # [B, N, 3]
+                x, y, z = means[..., 0], means[..., 1], means[..., 2]
+                gaussian_params["means"] = torch.stack([x, z, -y], dim=-1)
 
-            # Apply world rotation AFTER scaling, BEFORE translation
-            # X-axis rotation for yaw/heading (matching train_step)
-            if world_rot is not None:
-                angle = world_rot.to(self.device)
-                if angle.dim() == 0:
-                    angle = angle.unsqueeze(0)
-                cos_a = torch.cos(angle)
-                sin_a = torch.sin(angle)
-                B = cos_a.shape[0]
-                R = torch.zeros(B, 3, 3, device=self.device)
-                R[:, 0, 0] = 1.0
-                R[:, 1, 1] = cos_a
-                R[:, 1, 2] = -sin_a
-                R[:, 2, 1] = sin_a
-                R[:, 2, 2] = cos_a
-                gaussian_params["means"] = torch.bmm(gaussian_params["means"], R.transpose(1, 2))
-                joints_3d = torch.bmm(joints_3d, R.transpose(1, 2))
+                # Also rotate joints
+                jx, jy, jz = joints_3d[..., 0], joints_3d[..., 1], joints_3d[..., 2]
+                joints_3d = torch.stack([jx, jz, -jy], dim=-1)
 
-            # Apply world translation AFTER scaling and rotation
-            if world_trans is not None:
-                world_trans_device = world_trans.to(self.device)
-                gaussian_params["means"] = gaussian_params["means"] + world_trans_device.unsqueeze(1)
-                joints_3d = joints_3d + world_trans_device.unsqueeze(1)
+                # Rotate quaternions for base rotation
+                quats = gaussian_params["rotations"]  # [B, N, 4]
+                import math
+                base_quat = torch.tensor([math.cos(-math.pi/4), math.sin(-math.pi/4), 0, 0],
+                                          dtype=quats.dtype, device=quats.device)
+                base_quat = base_quat.view(1, 1, 4).expand(quats.shape[0], quats.shape[1], 4)
+                gaussian_params["rotations"] = self._quaternion_multiply(base_quat, quats)
+            else:
+                # Standard mode: apply world_scale and transforms
+                # Apply world_scale to joints and gaussians
+                if world_scale != 1.0:
+                    gaussian_params["means"] = gaussian_params["means"] * world_scale
+                    gaussian_params["scales"] = gaussian_params["scales"] * world_scale
+                    joints_3d = joints_3d * world_scale
+
+                # Apply base rotation: Body model is Y-up, but camera world is Z-up
+                # Rotate -90 degrees around X axis: Y -> Z, Z -> -Y
+                means = gaussian_params["means"]  # [B, N, 3]
+                x, y, z = means[..., 0], means[..., 1], means[..., 2]
+                gaussian_params["means"] = torch.stack([x, z, -y], dim=-1)
+
+                # Also rotate joints
+                jx, jy, jz = joints_3d[..., 0], joints_3d[..., 1], joints_3d[..., 2]
+                joints_3d = torch.stack([jx, jz, -jy], dim=-1)
+
+                # Rotate quaternions for base rotation
+                quats = gaussian_params["rotations"]  # [B, N, 4]
+                import math
+                base_quat = torch.tensor([math.cos(-math.pi/4), math.sin(-math.pi/4), 0, 0],
+                                          dtype=quats.dtype, device=quats.device)
+                base_quat = base_quat.view(1, 1, 4).expand(quats.shape[0], quats.shape[1], 4)
+                gaussian_params["rotations"] = self._quaternion_multiply(base_quat, quats)
+
+            # Apply yaw rotation and translation only in standard mode
+            if not canonical_mode:
+                # Apply yaw rotation (Z-axis rotation from center_rotation.npz)
+                # Order: scale -> base_rotation -> yaw_rotation -> translate
+                if yaw_angle is not None:
+                    # Build Z-axis rotation matrix from yaw angle [B]
+                    yaw = yaw_angle.to(self.device)
+                    B = yaw.shape[0]
+                    cos_a = torch.cos(yaw)  # [B]
+                    sin_a = torch.sin(yaw)  # [B]
+                    zeros = torch.zeros_like(cos_a)
+                    ones = torch.ones_like(cos_a)
+
+                    # R_z = [[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]]
+                    R = torch.stack([
+                        torch.stack([cos_a, -sin_a, zeros], dim=-1),
+                        torch.stack([sin_a, cos_a, zeros], dim=-1),
+                        torch.stack([zeros, zeros, ones], dim=-1),
+                    ], dim=-2)  # [B, 3, 3]
+
+                    # Rotate gaussian means: [B, N, 3] @ [B, 3, 3].T -> [B, N, 3]
+                    means = gaussian_params["means"]  # [B, N, 3]
+                    rotated_means = torch.einsum('bni,bji->bnj', means, R)
+                    gaussian_params["means"] = rotated_means
+
+                    # Rotate joints
+                    rotated_joints = torch.einsum('bji,bki->bjk', joints_3d, R)
+                    joints_3d = rotated_joints
+
+                    # Rotate gaussian quaternions: Z-axis rotation quaternion
+                    rotations = gaussian_params["rotations"]  # [B, N, 4]
+                    N = rotations.shape[1]
+
+                    half_angle = yaw / 2.0  # [B]
+                    R_quat_wxyz = torch.stack([
+                        torch.cos(half_angle),
+                        torch.zeros_like(half_angle),
+                        torch.zeros_like(half_angle),
+                        torch.sin(half_angle),
+                    ], dim=-1)  # [B, 4] in (w, x, y, z) format
+
+                    for b in range(B):
+                        q_old = rotations[b]  # [N, 4]
+                        q_new = self._quaternion_multiply(
+                            R_quat_wxyz[b:b+1].expand(N, -1), q_old
+                        )
+                        gaussian_params["rotations"][b] = q_new
+
+                # Apply world translation AFTER rotation and scaling
+                if world_trans is not None:
+                    world_trans_device = world_trans.to(self.device)
+                    gaussian_params["means"] = gaussian_params["means"] + world_trans_device.unsqueeze(1)
+                    joints_3d = joints_3d + world_trans_device.unsqueeze(1)
 
             rgb, alpha = self.avatar.render(
                 gaussian_params,
@@ -921,26 +1133,59 @@ class GaussianAvatarTrainer:
                 width, height,
             )
 
-            # Project joints to 2D
-            joints_2d = self._project_points(joints_3d[0], viewmat[0].to(self.device), K[0].to(self.device))
+            # Project joints to 2D (model keypoints)
+            model_joints_2d = self._project_points(joints_3d[0], viewmat[0].to(self.device), K[0].to(self.device))
 
         pred_img = (rgb[0].cpu().numpy() * 255).astype(np.uint8)
         target_img = (target_image[0].cpu().numpy() * 255).astype(np.uint8)
 
         # Create debug panel
         debug_img = self._create_debug_panel(
-            pose[0], joints_2d, world_scale, width, height
+            pose[0], model_joints_2d, world_scale, width, height
         )
 
-        # Draw keypoints on predicted image
-        pred_with_kp = self._draw_keypoints(pred_img.copy(), joints_2d, width, height)
+        # Draw MODEL keypoints on predicted image (multi-color, 140 joints)
+        pred_with_kp = self._draw_keypoints(pred_img.copy(), model_joints_2d, width, height)
 
-        # Draw keypoints on target (same projected points - for alignment check)
-        target_with_kp = self._draw_keypoints(target_img.copy(), joints_2d, width, height)
+        # Draw GT keypoints on target image (circles, 22 joints from detector)
+        if gt_keypoints2d is not None:
+            gt_kp = gt_keypoints2d.cpu().numpy() if isinstance(gt_keypoints2d, torch.Tensor) else gt_keypoints2d
+            target_with_kp = self._draw_gt_keypoints(target_img.copy(), gt_kp, width, height)
 
-        # Concatenate: Prediction | Target | Debug
-        vis = np.concatenate([pred_with_kp, target_with_kp, debug_img], axis=1)
-        cv2.imwrite(str(save_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
+            # Create alignment comparison panel: GT (circles) + Model projected (X markers)
+            alignment_img = self._draw_gt_keypoints(target_img.copy(), gt_kp, width, height)
+
+            # Option A (MoReMouse original): Use real camera projection + crop transform
+            # This shows actual pose estimation error without Procrustes hiding it
+            if real_camera is not None and crop_info is not None:
+                # Get original 3D joints (before base rotation and transforms)
+                # We need to get joints in world coordinates for real camera projection
+                joints_3d_world = self.avatar.body_model._J_posed[0].cpu().numpy()  # [140, 3]
+
+                # Project using real camera and apply crop transform
+                model_joints_2d_cropped = self._project_joints_3d_to_cropped(
+                    joints_3d_world, real_camera, crop_info
+                )
+                alignment_img = self._draw_model_keypoints_x(
+                    alignment_img, model_joints_2d_cropped, gt_kp, width, height
+                )
+            else:
+                # Fallback: use synthetic camera projection (less accurate)
+                alignment_img = self._draw_model_keypoints_x(
+                    alignment_img, model_joints_2d, gt_kp, width, height
+                )
+        else:
+            # Fallback: draw model keypoints on target (alignment check)
+            target_with_kp = self._draw_keypoints(target_img.copy(), model_joints_2d, width, height)
+            alignment_img = target_with_kp.copy()
+
+        # Concatenate: Prediction | Target+GT_kp | Alignment(GT+Model) | Debug
+        vis = np.concatenate([pred_with_kp, target_with_kp, alignment_img, debug_img], axis=1)
+        success = cv2.imwrite(str(save_path), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
+        if success:
+            print(f"Saved visualization to {save_path}")
+        else:
+            print(f"[ERROR] Failed to save visualization to {save_path}")
 
         self.avatar.train()
 
@@ -1010,6 +1255,269 @@ class GaussianAvatarTrainer:
 
         return img
 
+    def _draw_gt_keypoints(
+        self,
+        img: np.ndarray,
+        keypoints: np.ndarray,  # (22, 3) - x, y, confidence
+        width: int,
+        height: int,
+        conf_threshold: float = 0.3,
+    ) -> np.ndarray:
+        """Draw GT 2D keypoints on image using MAMMAL color scheme.
+
+        MAMMAL 22 keypoints:
+        0: left_ear_tip, 1: right_ear_tip, 2: nose
+        3: neck, 4: body_middle, 5: tail_root, 6: tail_middle, 7: tail_end
+        8: left_paw, 9: left_paw_end, 10: left_elbow, 11: left_shoulder
+        12: right_paw, 13: right_paw_end, 14: right_elbow, 15: right_shoulder
+        16: left_foot, 17: left_knee, 18: left_hip
+        19: right_foot, 20: right_knee, 21: right_hip
+        """
+        import cv2
+
+        # MAMMAL color scheme (RGB)
+        COLORS = [
+            (92, 94, 170),    # 0: purple (ears+nose)
+            (187, 97, 166),   # 1: pink (left front leg)
+            (109, 192, 91),   # 2: green (right front leg)
+            (221, 94, 86),    # 3: red (spine/body)
+            (210, 220, 88),   # 4: yellow (left hind leg)
+            (98, 201, 211),   # 5: blue (right hind leg)
+        ]
+
+        # Joint color index (which color for each of 22 keypoints)
+        JOINT_COLOR_INDEX = [
+            0, 0, 0,          # 0-2: ears + nose (purple)
+            3, 3, 3, 3, 3,    # 3-7: neck, body, tail (red)
+            1, 1, 1, 1,       # 8-11: left front leg (pink)
+            2, 2, 2, 2,       # 12-15: right front leg (green)
+            4, 4, 4,          # 16-18: left hind leg (yellow)
+            5, 5, 5           # 19-21: right hind leg (blue)
+        ]
+
+        # Keypoint names for legend
+        KEYPOINT_NAMES = [
+            "L_ear", "R_ear", "nose",
+            "neck", "body", "tail_root", "tail_mid", "tail_end",
+            "L_paw", "L_paw_end", "L_elbow", "L_shoulder",
+            "R_paw", "R_paw_end", "R_elbow", "R_shoulder",
+            "L_foot", "L_knee", "L_hip",
+            "R_foot", "R_knee", "R_hip"
+        ]
+
+        # MAMMAL skeleton bones (21 connections)
+        BONES = [
+            [0, 2], [1, 2],                      # ears to nose
+            [2, 3], [3, 4], [4, 5], [5, 6], [6, 7],  # spine (nose->tail)
+            [8, 9], [9, 10], [10, 11], [11, 3],  # left front leg
+            [12, 13], [13, 14], [14, 15], [15, 3],  # right front leg
+            [16, 17], [17, 18], [18, 5],         # left hind leg
+            [19, 20], [20, 21], [21, 5]          # right hind leg
+        ]
+
+        # Bone color index
+        BONE_COLOR_INDEX = [
+            0, 0,             # ears
+            3, 3, 3, 3, 3,    # spine
+            1, 1, 1, 1,       # left front leg
+            2, 2, 2, 2,       # right front leg
+            4, 4, 4,          # left hind leg
+            5, 5, 5           # right hind leg
+        ]
+
+        # Draw skeleton bones first (behind keypoints)
+        for bone_idx, (i, j) in enumerate(BONES):
+            if i < len(keypoints) and j < len(keypoints):
+                if keypoints[i, 2] < conf_threshold or keypoints[j, 2] < conf_threshold:
+                    continue
+                x1, y1 = int(keypoints[i, 0]), int(keypoints[i, 1])
+                x2, y2 = int(keypoints[j, 0]), int(keypoints[j, 1])
+                if (0 <= x1 < width and 0 <= y1 < height and
+                    0 <= x2 < width and 0 <= y2 < height):
+                    color_idx = BONE_COLOR_INDEX[bone_idx]
+                    color = COLORS[color_idx]
+                    cv2.line(img, (x1, y1), (x2, y2), color, 3)
+
+        # Draw keypoints
+        for i in range(len(keypoints)):
+            x, y, conf = keypoints[i]
+            if conf < conf_threshold:
+                continue
+
+            x, y = int(x), int(y)
+            if 0 <= x < width and 0 <= y < height:
+                color_idx = JOINT_COLOR_INDEX[i] if i < len(JOINT_COLOR_INDEX) else 3
+                color = COLORS[color_idx]
+                cv2.circle(img, (x, y), 6, color, -1)
+                cv2.circle(img, (x, y), 7, (0, 0, 0), 1)  # Black outline
+
+        return img
+
+    def _compute_2d_procrustes(
+        self,
+        source_pts: np.ndarray,  # [N, 2] points to transform
+        target_pts: np.ndarray,  # [N, 2] target points
+        weights: np.ndarray = None,  # [N] optional confidence weights
+    ) -> tuple:
+        """Compute 2D similarity transform (scale + rotation + translation).
+
+        Returns transform parameters such that:
+            transformed = scale * R @ source + translation
+
+        Returns:
+            scale, rotation_matrix, translation, transformed_source
+        """
+        if weights is None:
+            weights = np.ones(len(source_pts))
+
+        # Filter by valid weights
+        valid = weights > 0.3
+        if valid.sum() < 3:
+            # Not enough points, return identity
+            return 1.0, np.eye(2), np.zeros(2), source_pts
+
+        src = source_pts[valid]
+        tgt = target_pts[valid]
+        w = weights[valid]
+
+        # Weighted centroids
+        w_sum = w.sum()
+        src_centroid = (src * w[:, None]).sum(axis=0) / w_sum
+        tgt_centroid = (tgt * w[:, None]).sum(axis=0) / w_sum
+
+        # Center points
+        src_centered = src - src_centroid
+        tgt_centered = tgt - tgt_centroid
+
+        # Weighted covariance
+        H = (src_centered * w[:, None]).T @ tgt_centered
+
+        # SVD for rotation
+        U, S, Vt = np.linalg.svd(H)
+        R = Vt.T @ U.T
+
+        # Handle reflection
+        if np.linalg.det(R) < 0:
+            Vt[-1, :] *= -1
+            R = Vt.T @ U.T
+
+        # Scale (ratio of dispersions)
+        src_var = ((src_centered ** 2) * w[:, None]).sum()
+        tgt_var = ((tgt_centered ** 2) * w[:, None]).sum()
+        scale = np.sqrt(tgt_var / (src_var + 1e-8))
+
+        # Translation
+        translation = tgt_centroid - scale * R @ src_centroid
+
+        # Transform all source points
+        transformed = scale * (source_pts @ R.T) + translation
+
+        return scale, R, translation, transformed
+
+    def _project_joints_3d_to_cropped(
+        self,
+        joints_3d: np.ndarray,  # [140, 3] 3D joints in world space
+        real_camera: Dict,  # K, viewmat from MAMMAL calibration
+        crop_info: Dict,  # x1, y1, scale from cropping
+    ) -> np.ndarray:
+        """Project 3D joints to cropped image coordinates (Option A - MoReMouse method).
+
+        This is the correct way to compare Model keypoints with GT keypoints:
+        1. Get model 3D joints in world coordinates
+        2. Project using REAL MAMMAL camera (K, viewmat)
+        3. Apply crop transform to get cropped image coordinates
+
+        Unlike Procrustes alignment, this shows the actual pose estimation error.
+        """
+        # Get camera parameters
+        K = real_camera['K'].cpu().numpy() if torch.is_tensor(real_camera['K']) else real_camera['K']
+        viewmat = real_camera['viewmat'].cpu().numpy() if torch.is_tensor(real_camera['viewmat']) else real_camera['viewmat']
+
+        # Extract R and T from viewmat (world-to-camera)
+        R = viewmat[:3, :3]  # [3, 3]
+        T = viewmat[:3, 3]   # [3]
+
+        # Transform 3D joints to camera space
+        # P_cam = R @ P_world + T
+        joints_cam = (R @ joints_3d.T).T + T  # [140, 3]
+
+        # Project to image coordinates
+        # p = K @ P_cam (then divide by z)
+        joints_proj = (K @ joints_cam.T).T  # [140, 3]
+
+        # Perspective divide
+        z = joints_proj[:, 2:3]
+        z = np.maximum(z, 1e-6)  # Avoid division by zero
+        joints_2d_orig = joints_proj[:, :2] / z  # [140, 2] in original image coords
+
+        # Apply crop transform: (p_orig - crop_origin) * scale
+        x1 = crop_info['x1'].cpu().item() if torch.is_tensor(crop_info['x1']) else crop_info['x1']
+        y1 = crop_info['y1'].cpu().item() if torch.is_tensor(crop_info['y1']) else crop_info['y1']
+        scale = crop_info['scale'].cpu().item() if torch.is_tensor(crop_info['scale']) else crop_info['scale']
+
+        joints_2d_cropped = np.zeros_like(joints_2d_orig)
+        joints_2d_cropped[:, 0] = (joints_2d_orig[:, 0] - x1) * scale
+        joints_2d_cropped[:, 1] = (joints_2d_orig[:, 1] - y1) * scale
+
+        return joints_2d_cropped
+
+    def _draw_model_keypoints_x(
+        self,
+        img: np.ndarray,
+        joints_2d: np.ndarray,  # [140, 2] model joints in cropped image coords
+        gt_keypoints: np.ndarray,  # [22, 3] GT keypoints with confidence
+        width: int,
+        height: int,
+    ) -> np.ndarray:
+        """Draw model keypoints as X markers.
+
+        Option A (MoReMouse original): joints_2d should already be projected
+        via real camera and crop transform by _project_joints_3d_to_cropped().
+
+        Model joints (140) to MAMMAL keypoints (22) mapping from keypoint22_mapper.json.
+        """
+        import cv2
+
+        # Key joints to visualize using actual model joint indices from keypoint22_mapper.json
+        # Colors match MAMMAL color scheme
+        key_joints = {
+            64: (221, 94, 86),    # Joint 64 -> neck - Red (spine)
+            48: (221, 94, 86),    # Joint 48 -> tail_root - Red (spine)
+            54: (221, 94, 86),    # Joint 54 -> tail_middle - Red (spine)
+            61: (221, 94, 86),    # Joint 61 -> tail_end - Red (spine)
+            70: (187, 97, 166),   # Joint 70 -> left_shoulder - Pink (left front)
+            73: (187, 97, 166),   # Joint 73 -> left_elbow - Pink (left front)
+            79: (187, 97, 166),   # Joint 79 -> left_paw - Pink (left front)
+            95: (109, 192, 91),   # Joint 95 -> right_shoulder - Green (right front)
+            98: (109, 192, 91),   # Joint 98 -> right_elbow - Green (right front)
+            104: (109, 192, 91),  # Joint 104 -> right_paw - Green (right front)
+            4: (210, 220, 88),    # Joint 4 -> left_hip - Yellow (left hind)
+            5: (210, 220, 88),    # Joint 5 -> left_knee - Yellow (left hind)
+            15: (210, 220, 88),   # Joint 15 -> left_foot - Yellow (left hind)
+            27: (98, 201, 211),   # Joint 27 -> right_hip - Cyan (right hind)
+            28: (98, 201, 211),   # Joint 28 -> right_knee - Cyan (right hind)
+            38: (98, 201, 211),   # Joint 38 -> right_foot - Cyan (right hind)
+        }
+
+        marker_size = 6
+
+        for joint_idx, color in key_joints.items():
+            if joint_idx < len(joints_2d):
+                x, y = int(joints_2d[joint_idx, 0]), int(joints_2d[joint_idx, 1])
+                if 0 <= x < width and 0 <= y < height:
+                    # Draw X marker
+                    cv2.line(img, (x - marker_size, y - marker_size),
+                             (x + marker_size, y + marker_size), color, 2)
+                    cv2.line(img, (x - marker_size, y + marker_size),
+                             (x + marker_size, y - marker_size), color, 2)
+                    # Black outline for visibility
+                    cv2.line(img, (x - marker_size - 1, y - marker_size - 1),
+                             (x + marker_size + 1, y + marker_size + 1), (0, 0, 0), 1)
+                    cv2.line(img, (x - marker_size - 1, y + marker_size + 1),
+                             (x + marker_size + 1, y - marker_size - 1), (0, 0, 0), 1)
+
+        return img
+
     def _create_debug_panel(
         self,
         pose: torch.Tensor,
@@ -1018,7 +1526,7 @@ class GaussianAvatarTrainer:
         width: int,
         height: int,
     ) -> np.ndarray:
-        """Create debug info panel."""
+        """Create debug info panel with MAMMAL legend."""
         import cv2
 
         # Create white panel
@@ -1040,7 +1548,7 @@ class GaussianAvatarTrainer:
         font_scale = 0.5
         color = (0, 0, 0)
         y_offset = 30
-        line_height = 25
+        line_height = 22
 
         texts = [
             f"=== Debug Info ===",
@@ -1055,18 +1563,37 @@ class GaussianAvatarTrainer:
             f"joints in frame: {joints_in_frame}/140",
             f"joints center: ({joints_center[0]:.0f}, {joints_center[1]:.0f})",
             f"expected: ({width//2}, {height//2})",
-            f"",
-            f"=== Legend ===",
-            f"Red: Root",
-            f"Green: Head",
-            f"Cyan: Front L",
-            f"Blue: Back L",
-            f"Magenta: Tail",
         ]
 
         for i, text in enumerate(texts):
             cv2.putText(panel, text, (10, y_offset + i * line_height),
                        font, font_scale, color, 1, cv2.LINE_AA)
+
+        # MAMMAL Color Legend with actual color indicators
+        legend_y = y_offset + len(texts) * line_height + 20
+
+        # MAMMAL colors (RGB for display)
+        legend_items = [
+            ("=== GT Keypoints (MAMMAL 22) ===", None),
+            ("Ears + Nose", (92, 94, 170)),      # purple
+            ("Spine/Body/Tail", (221, 94, 86)),   # red
+            ("Left Front Leg", (187, 97, 166)),   # pink
+            ("Right Front Leg", (109, 192, 91)),  # green
+            ("Left Hind Leg", (210, 220, 88)),    # yellow
+            ("Right Hind Leg", (98, 201, 211)),   # blue
+        ]
+
+        for i, (text, legend_color) in enumerate(legend_items):
+            y_pos = legend_y + i * line_height
+            if legend_color is not None:
+                # Draw color circle
+                cv2.circle(panel, (20, y_pos - 5), 8, legend_color, -1)
+                cv2.circle(panel, (20, y_pos - 5), 9, (0, 0, 0), 1)
+                cv2.putText(panel, text, (35, y_pos),
+                           font, font_scale, color, 1, cv2.LINE_AA)
+            else:
+                cv2.putText(panel, text, (10, y_pos),
+                           font, font_scale, color, 1, cv2.LINE_AA)
 
         return panel
 

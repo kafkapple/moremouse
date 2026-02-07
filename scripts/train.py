@@ -94,6 +94,137 @@ def create_visualization_grid(
     return grid_np
 
 
+def create_comprehensive_visualization(
+    outputs: dict,
+    input_img: torch.Tensor,
+    target_img: torch.Tensor = None,
+    nrow: int = 4,
+) -> dict:
+    """
+    Create comprehensive visualization for all model outputs.
+
+    Creates separate visualizations for:
+    - RGB: Input | Prediction | Target | Diff
+    - Depth: Predicted depth map (colorized)
+    - Alpha: Predicted opacity/mask
+    - Embedding: Geodesic embedding (as RGB)
+
+    Args:
+        outputs: Model outputs containing rgb, depth, alpha, embedding
+        input_img: [B, C, H, W] or [B, H, W, C] input images
+        target_img: [B, C, H, W] or [B, H, W, C] target images (optional)
+        nrow: Number of images per row
+
+    Returns:
+        Dictionary with visualization arrays for each modality
+    """
+    vis_dict = {}
+    B = input_img.shape[0]
+    n = min(nrow, B)
+
+    # 1. RGB visualization (existing logic)
+    vis_dict["rgb"] = create_visualization_grid(
+        input_img, outputs["rgb"], target_img, nrow=n
+    )
+
+    # 2. Depth visualization
+    if "depth" in outputs and outputs["depth"] is not None:
+        depth = outputs["depth"].detach()  # [B, H, W]
+        if depth.dim() == 4:
+            depth = depth.squeeze(1)
+
+        # Normalize depth to [0, 1] for visualization
+        depth_min = depth.min()
+        depth_max = depth.max()
+        depth_norm = (depth - depth_min) / (depth_max - depth_min + 1e-8)
+
+        # Apply colormap (viridis-like)
+        depth_colored = _apply_depth_colormap(depth_norm[:n])  # [n, H, W, 3]
+        depth_colored = depth_colored.permute(0, 3, 1, 2)  # [n, 3, H, W]
+
+        grid = vutils.make_grid(depth_colored, nrow=n, padding=2, normalize=False)
+        grid_np = grid.cpu().numpy().transpose(1, 2, 0)
+        vis_dict["depth"] = (grid_np * 255).astype(np.uint8)
+
+    # 3. Alpha/Opacity visualization
+    if "alpha" in outputs and outputs["alpha"] is not None:
+        alpha = outputs["alpha"].detach()  # [B, H, W]
+        if alpha.dim() == 4:
+            alpha = alpha.squeeze(1)
+
+        # Clamp to [0, 1]
+        alpha = torch.clamp(alpha, 0, 1)
+
+        # Convert to 3-channel grayscale
+        alpha_rgb = alpha[:n].unsqueeze(1).repeat(1, 3, 1, 1)  # [n, 3, H, W]
+
+        grid = vutils.make_grid(alpha_rgb, nrow=n, padding=2, normalize=False)
+        grid_np = grid.cpu().numpy().transpose(1, 2, 0)
+        vis_dict["alpha"] = (grid_np * 255).astype(np.uint8)
+
+    # 4. Geodesic Embedding visualization
+    if "embedding" in outputs and outputs["embedding"] is not None:
+        embedding = outputs["embedding"].detach()  # [B, H, W, 3]
+        if embedding.dim() == 4 and embedding.shape[-1] == 3:
+            # Already in [B, H, W, 3] format
+            embedding = embedding.permute(0, 3, 1, 2)  # [B, 3, H, W]
+
+        # Normalize embedding to [0, 1] for visualization
+        emb_min = embedding.min()
+        emb_max = embedding.max()
+        embedding_norm = (embedding - emb_min) / (emb_max - emb_min + 1e-8)
+        embedding_norm = torch.clamp(embedding_norm, 0, 1)
+
+        grid = vutils.make_grid(embedding_norm[:n], nrow=n, padding=2, normalize=False)
+        grid_np = grid.cpu().numpy().transpose(1, 2, 0)
+        vis_dict["embedding"] = (grid_np * 255).astype(np.uint8)
+
+    return vis_dict
+
+
+def _apply_depth_colormap(depth: torch.Tensor) -> torch.Tensor:
+    """
+    Apply viridis-like colormap to depth tensor.
+
+    Args:
+        depth: [B, H, W] normalized depth in [0, 1]
+
+    Returns:
+        [B, H, W, 3] colored depth
+    """
+    # Simple viridis-like colormap (blue -> green -> yellow)
+    B, H, W = depth.shape
+    device = depth.device
+
+    # RGB values for viridis at key points
+    colors = torch.tensor([
+        [0.267, 0.004, 0.329],  # Dark purple (near)
+        [0.282, 0.140, 0.458],  # Purple
+        [0.254, 0.265, 0.530],  # Blue-purple
+        [0.207, 0.372, 0.553],  # Blue
+        [0.164, 0.471, 0.558],  # Blue-green
+        [0.128, 0.567, 0.551],  # Teal
+        [0.135, 0.659, 0.518],  # Green-teal
+        [0.267, 0.749, 0.441],  # Green
+        [0.478, 0.821, 0.318],  # Yellow-green
+        [0.741, 0.873, 0.150],  # Yellow
+        [0.993, 0.906, 0.144],  # Bright yellow (far)
+    ], device=device)
+
+    # Interpolate colors based on depth value
+    depth_flat = depth.flatten()  # [B*H*W]
+    idx_float = depth_flat * (len(colors) - 1)
+    idx_low = idx_float.long().clamp(0, len(colors) - 2)
+    idx_high = (idx_low + 1).clamp(0, len(colors) - 1)
+    t = (idx_float - idx_low.float()).unsqueeze(-1)  # [B*H*W, 1]
+
+    color_low = colors[idx_low]  # [B*H*W, 3]
+    color_high = colors[idx_high]  # [B*H*W, 3]
+    colored = color_low * (1 - t) + color_high * t  # [B*H*W, 3]
+
+    return colored.reshape(B, H, W, 3)
+
+
 class Trainer:
     """
     MoReMouse Trainer
@@ -141,6 +272,10 @@ class Trainer:
         self.current_epoch = 0
         self.global_step = 0
         self.best_metric = float('inf')
+
+        # Load checkpoint if resume path provided
+        if hasattr(cfg, 'resume') and cfg.resume:
+            self._load_checkpoint(cfg.resume)
 
         # Setup logging
         self._setup_logging()
@@ -385,7 +520,7 @@ class Trainer:
 
             # Periodic visualization (every eval_freq steps)
             if self.global_step % self.cfg.logging.eval_freq == 0:
-                self._save_train_visualization(input_images, outputs["rgb"], target_images)
+                self._save_train_visualization(input_images, outputs, target_images)
 
             # Save checkpoint
             if self.global_step % self.cfg.logging.save_freq == 0:
@@ -419,12 +554,12 @@ class Trainer:
                         Ks=Ks,
                     )
 
-                # Store first batch for visualization
+                # Store first batch for visualization (all modalities)
                 if batch_idx == 0:
                     vis_samples = {
                         "input": input_images.detach(),
-                        "pred": outputs["rgb"].detach(),
                         "target": target_images.detach(),
+                        "outputs": {k: v.detach() if torch.is_tensor(v) else v for k, v in outputs.items()},
                     }
 
                 # Compute metrics
@@ -444,30 +579,42 @@ class Trainer:
 
         self.logger.info(f"Validation - PSNR: {avg_metrics['psnr']:.2f}, SSIM: {avg_metrics['ssim']:.4f}")
 
-        # Create and save visualization
+        # Create and save comprehensive visualization (all modalities)
         if vis_samples is not None:
-            vis_grid = create_visualization_grid(
-                vis_samples["input"],
-                vis_samples["pred"],
-                vis_samples["target"],
+            vis_dir = Path(self.cfg.paths.output) / self.cfg.experiment.name / "visualizations"
+            vis_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create comprehensive visualization for all modalities
+            vis_dict = create_comprehensive_visualization(
+                outputs=vis_samples["outputs"],
+                input_img=vis_samples["input"],
+                target_img=vis_samples["target"],
                 nrow=min(4, vis_samples["input"].shape[0]),
             )
 
-            # Save to disk
-            vis_dir = Path(self.cfg.paths.output) / self.cfg.experiment.name / "visualizations"
-            vis_dir.mkdir(parents=True, exist_ok=True)
-            vis_path = vis_dir / f"val_epoch{self.current_epoch:03d}_step{self.global_step:06d}.png"
-            Image.fromarray(vis_grid).save(vis_path)
-            self.logger.info(f"Saved visualization to {vis_path}")
+            # Save each modality
+            for modality, vis_array in vis_dict.items():
+                vis_path = vis_dir / f"val_epoch{self.current_epoch:03d}_step{self.global_step:06d}_{modality}.png"
+                Image.fromarray(vis_array).save(vis_path)
+            self.logger.info(f"Saved validation visualizations to {vis_dir}")
 
         # Log to wandb
         if self.use_wandb:
             wandb.log({f"val/{k}": v for k, v in avg_metrics.items()}, step=self.global_step)
-            # Log visualization image
+            # Log visualization images for all modalities
             if vis_samples is not None:
-                wandb.log({
-                    "val/visualization": wandb.Image(vis_grid, caption="Input | Pred | Target | Diff")
-                }, step=self.global_step)
+                wandb_images = {}
+                captions = {
+                    "rgb": "Input | Pred | Target | Diff",
+                    "depth": "Predicted Depth (viridis)",
+                    "alpha": "Predicted Opacity/Mask",
+                    "embedding": "Geodesic Embedding (RGB)",
+                }
+                for modality, vis_array in vis_dict.items():
+                    wandb_images[f"val/{modality}"] = wandb.Image(
+                        vis_array, caption=captions.get(modality, modality)
+                    )
+                wandb.log(wandb_images, step=self.global_step)
 
         # Save best model
         if avg_metrics.get('lpips', float('inf')) < self.best_metric:
@@ -477,28 +624,40 @@ class Trainer:
     def _save_train_visualization(
         self,
         input_images: torch.Tensor,
-        pred_images: torch.Tensor,
+        outputs: dict,
         target_images: torch.Tensor,
     ):
-        """Save training visualization."""
-        vis_grid = create_visualization_grid(
-            input_images.detach(),
-            pred_images.detach(),
-            target_images.detach(),
+        """Save comprehensive training visualization (RGB, depth, alpha, embedding)."""
+        vis_dir = Path(self.cfg.paths.output) / self.cfg.experiment.name / "visualizations"
+        vis_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create comprehensive visualization for all modalities
+        vis_dict = create_comprehensive_visualization(
+            outputs=outputs,
+            input_img=input_images.detach(),
+            target_img=target_images.detach(),
             nrow=min(4, input_images.shape[0]),
         )
 
-        # Save to disk
-        vis_dir = Path(self.cfg.paths.output) / self.cfg.experiment.name / "visualizations"
-        vis_dir.mkdir(parents=True, exist_ok=True)
-        vis_path = vis_dir / f"train_step{self.global_step:06d}.png"
-        Image.fromarray(vis_grid).save(vis_path)
+        # Save each modality
+        for modality, vis_array in vis_dict.items():
+            vis_path = vis_dir / f"train_step{self.global_step:06d}_{modality}.png"
+            Image.fromarray(vis_array).save(vis_path)
 
         # Log to wandb
         if self.use_wandb:
-            wandb.log({
-                "train/visualization": wandb.Image(vis_grid, caption="Input | Pred | Target | Diff")
-            }, step=self.global_step)
+            wandb_images = {}
+            captions = {
+                "rgb": "Input | Pred | Target | Diff",
+                "depth": "Predicted Depth (viridis)",
+                "alpha": "Predicted Opacity/Mask",
+                "embedding": "Geodesic Embedding (RGB)",
+            }
+            for modality, vis_array in vis_dict.items():
+                wandb_images[f"train/{modality}"] = wandb.Image(
+                    vis_array, caption=captions.get(modality, modality)
+                )
+            wandb.log(wandb_images, step=self.global_step)
 
     def _log_step(self, losses: dict):
         """Log training step."""
@@ -506,6 +665,45 @@ class Trainer:
             log_dict = {f"train/{k}": v.item() for k, v in losses.items()}
             log_dict["train/lr"] = self.optimizer.param_groups[0]['lr']
             wandb.log(log_dict, step=self.global_step)
+
+    def _load_checkpoint(self, checkpoint_path: str):
+        """Load model checkpoint for resuming training."""
+        checkpoint_path = Path(checkpoint_path)
+
+        # Auto-detect latest checkpoint if directory provided
+        if checkpoint_path.is_dir():
+            latest_path = checkpoint_path / "latest.pt"
+            if latest_path.exists():
+                checkpoint_path = latest_path
+            else:
+                self.logger.warning(f"No latest.pt found in {checkpoint_path}")
+                return
+
+        if not checkpoint_path.exists():
+            self.logger.warning(f"Checkpoint not found: {checkpoint_path}")
+            return
+
+        self.logger.info(f"Loading checkpoint from {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+        # Load model weights
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+
+        # Load optimizer state
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+        # Load scheduler state if available
+        if self.scheduler is not None and "scheduler_state_dict" in checkpoint:
+            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+
+        # Restore training state
+        self.current_epoch = checkpoint.get("epoch", 0)
+        self.global_step = checkpoint.get("global_step", 0)
+        self.best_metric = checkpoint.get("best_metric", float('inf'))
+
+        self.logger.info(
+            f"Resumed from epoch {self.current_epoch}, step {self.global_step}"
+        )
 
     def _save_checkpoint(self, is_best: bool = False):
         """Save model checkpoint."""
@@ -537,6 +735,17 @@ class Trainer:
                 checkpoint,
                 checkpoint_dir / f"checkpoint_{self.global_step:08d}.pt"
             )
+
+            # Delete old checkpoints (keep_last)
+            keep_last = self.cfg.checkpoint.get("keep_last", 5)
+            existing_checkpoints = sorted(
+                checkpoint_dir.glob("checkpoint_*.pt"),
+                key=lambda p: int(p.stem.split("_")[1])
+            )
+            if len(existing_checkpoints) > keep_last:
+                for old_ckpt in existing_checkpoints[:-keep_last]:
+                    old_ckpt.unlink()
+                    self.logger.info(f"Deleted old checkpoint: {old_ckpt.name}")
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
