@@ -15,65 +15,8 @@ import json
 
 from src.models.mouse_body import load_mouse_model
 from src.data import create_mammal_dataloader
-
-
-# Keypoint 22 mapping from MAMMAL body model
-KEYPOINT22_JOINT_MAP = {
-    3: [64, 65], 5: [48, 51], 6: [54, 55], 7: [61],
-    8: [79], 9: [74], 10: [73], 11: [70],
-    12: [104], 13: [99], 14: [98], 15: [95],
-    16: [15], 17: [5], 18: [4],
-    19: [38], 20: [28], 21: [27],
-}
-
-# MAMMAL bone connections
-BONES = [
-    [0, 2], [1, 2],
-    [2, 3], [3, 4], [4, 5], [5, 6], [6, 7],
-    [8, 9], [9, 10], [10, 11], [11, 3],
-    [12, 13], [13, 14], [14, 15], [15, 3],
-    [16, 17], [17, 18], [18, 5],
-    [19, 20], [20, 21], [21, 5]
-]
-
-
-def extract_keypoints22(joints_3d, device='cpu'):
-    B = joints_3d.shape[0]
-    keypoints = torch.zeros(B, 22, 3, device=device)
-    for kp_idx, joint_ids in KEYPOINT22_JOINT_MAP.items():
-        if kp_idx < 22:
-            joint_positions = joints_3d[:, joint_ids, :]
-            keypoints[:, kp_idx] = joint_positions.mean(dim=1)
-    keypoints[:, 0] = joints_3d[:, 64, :]
-    keypoints[:, 1] = joints_3d[:, 66, :]
-    keypoints[:, 2] = joints_3d[:, 67, :]
-    keypoints[:, 4] = joints_3d[:, 0, :]
-    return keypoints
-
-
-def project_points(points_3d, viewmat, K):
-    # points_3d: [N, 3]
-    N = points_3d.shape[0]
-    ones = torch.ones(N, 1, device=points_3d.device, dtype=points_3d.dtype)
-    points_homo = torch.cat([points_3d, ones], dim=-1)  # [N, 4]
-    points_cam = (viewmat @ points_homo.T).T[:, :3]  # [N, 3]
-    points_2d = (K @ points_cam.T).T  # [N, 3]
-    points_2d = points_2d[:, :2] / points_2d[:, 2:3]  # [N, 2]
-    return points_2d
-
-
-def draw_skeleton(img, kps_2d, color, bones=BONES):
-    """Draw skeleton with bones."""
-    for i, j in bones:
-        if i < len(kps_2d) and j < len(kps_2d):
-            pt1 = tuple(kps_2d[i].astype(int))
-            pt2 = tuple(kps_2d[j].astype(int))
-            if all(0 <= c < 1500 for c in pt1 + pt2):
-                cv2.line(img, pt1, pt2, color, 2)
-    for k in range(len(kps_2d)):
-        pt = tuple(kps_2d[k].astype(int))
-        if 0 <= pt[0] < img.shape[1] and 0 <= pt[1] < img.shape[0]:
-            cv2.circle(img, pt, 5, color, -1)
+from src.utils.geometry import KEYPOINT22_JOINT_MAP, BONES, extract_keypoints22, draw_skeleton
+from src.utils.transforms import project_points
 
 
 def test_transform(body_model, batch, transform_params, device, use_procrustes=False):

@@ -18,17 +18,8 @@ import cv2
 
 from src.models.mouse_body import load_mouse_model
 from src.data import create_mammal_dataloader
-
-
-# MAMMAL 22-keypoint bone connections
-BONES = [
-    [0,2], [1,2],                        # ears to spine
-    [2,3],[3,4],[4,5],[5,6],[6,7],        # spine
-    [8,9], [9,10], [10,11], [11,3],       # right front leg
-    [12,13], [13,14], [14,15], [15,3],    # left front leg
-    [16,17],[17,18],[18,5],               # right hind leg
-    [19,20],[20,21],[21,5]                # left hind leg
-]
+from src.utils.geometry import KEYPOINT22_JOINT_MAP, BONES, extract_keypoints22
+from src.utils.transforms import project_points, build_z_rotation_matrix
 
 # MAMMAL color scheme (RGB)
 COLORS = {
@@ -58,70 +49,6 @@ JOINT_COLORS = [
     'yellow', 'yellow', 'yellow',          # 16-18: right hind leg
     'blue', 'blue', 'blue', 'blue'         # 19-21: left hind leg (extend to 22)
 ]
-
-# Keypoint 22 mapping from MAMMAL (keypoint index -> joint/vertex ids)
-KEYPOINT22_JOINT_MAP = {
-    3: [64, 65],   # spine
-    5: [48, 51],   #
-    6: [54, 55],   #
-    7: [61],       #
-    8: [79],       # Right Front Leg
-    9: [74],       #
-    10: [73],      #
-    11: [70],      #
-    12: [104],     # Left Front Leg
-    13: [99],      #
-    14: [98],      #
-    15: [95],      #
-    16: [15],      # Right Hind Leg
-    17: [5],       #
-    18: [4],       #
-    19: [38],      # Left Hind Leg
-    20: [28],      #
-    21: [27],      #
-}
-
-
-def project_points(points_3d, viewmat, K):
-    """Project 3D points to 2D."""
-    points_homo = torch.cat([points_3d, torch.ones_like(points_3d[:, :1])], dim=-1)
-    points_cam = (viewmat @ points_homo.T).T[:, :3]
-    points_2d = (K @ points_cam.T).T
-    points_2d = points_2d[:, :2] / points_2d[:, 2:3]
-    return points_2d
-
-
-def build_z_rotation(yaw_angle, device='cpu'):
-    """Build Z-axis rotation matrix."""
-    cos_a = torch.cos(yaw_angle)
-    sin_a = torch.sin(yaw_angle)
-    zeros = torch.zeros_like(cos_a)
-    ones = torch.ones_like(cos_a)
-    R = torch.stack([
-        torch.stack([cos_a, -sin_a, zeros], dim=-1),
-        torch.stack([sin_a, cos_a, zeros], dim=-1),
-        torch.stack([zeros, zeros, ones], dim=-1),
-    ], dim=-2)
-    return R
-
-
-def extract_keypoints22(joints_3d, vertices, device='cpu'):
-    """Extract 22 keypoints from body model joints."""
-    B = joints_3d.shape[0]
-    keypoints = torch.zeros(B, 22, 3, device=device)
-
-    for kp_idx, joint_ids in KEYPOINT22_JOINT_MAP.items():
-        if kp_idx < 22:
-            joint_positions = joints_3d[:, joint_ids, :]
-            keypoints[:, kp_idx] = joint_positions.mean(dim=1)
-
-    # Vertex-based keypoints approximations
-    keypoints[:, 0] = joints_3d[:, 64, :]  # Nose
-    keypoints[:, 1] = joints_3d[:, 66, :]  # Left ear
-    keypoints[:, 2] = joints_3d[:, 67, :]  # Right ear
-    keypoints[:, 4] = joints_3d[:, 0, :]   # Tail base
-
-    return keypoints
 
 
 def draw_keypoints_mammal_style(img, keypoints_2d, color_type='pred', draw_bones=True):
@@ -217,7 +144,7 @@ def test_single_config(body_model, batch, world_scale, platform_offset, negate_y
         pose_device = pose.to(device)
         vertices = body_model(pose_device)
         joints_3d_all = body_model._J_posed.clone()
-        keypoints_3d = extract_keypoints22(joints_3d_all, vertices, device)
+        keypoints_3d = extract_keypoints22(joints_3d_all, device)
         keypoints_3d = keypoints_3d * world_scale
 
         # Base rotation: Y-up -> Z-up
@@ -226,7 +153,7 @@ def test_single_config(body_model, batch, world_scale, platform_offset, negate_y
 
         # Yaw rotation
         if yaw_angle is not None:
-            R = build_z_rotation(yaw_angle, device)
+            R = build_z_rotation_matrix(yaw_angle)
             keypoints_3d = torch.einsum('bji,bki->bjk', keypoints_3d, R)
 
         # World translation

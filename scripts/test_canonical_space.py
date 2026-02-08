@@ -27,13 +27,13 @@ import math
 
 from src.models.mouse_body import load_mouse_model
 from src.data import create_mammal_dataloader
-
-
-# MoReMouse paper constants
-MESH_SCALE = 1.0 / 180.0  # Scale to fit in unit sphere
-CAMERA_RADIUS = 2.22      # Camera distance from origin
-FOV_DEG = 29.86           # Field of view in degrees
-IMAGE_SIZE = 800          # Resolution
+from src.utils.geometry import KEYPOINT22_JOINT_MAP, BONES, extract_keypoints22, draw_skeleton
+from src.utils.transforms import (
+    CANONICAL_MESH_SCALE as MESH_SCALE,
+    CANONICAL_CAMERA_RADIUS as CAMERA_RADIUS,
+    CANONICAL_FOV_DEG as FOV_DEG,
+    CANONICAL_IMAGE_SIZE as IMAGE_SIZE,
+)
 
 
 def fov_to_focal_length(fov_deg: float, image_size: int) -> float:
@@ -276,59 +276,6 @@ def project_mesh_canonical(
     verts_2d = verts_2d[:, :2] / (verts_2d[:, 2:3] + 1e-8)
 
     return verts_2d
-
-
-# MAMMAL 22 keypoints mapping (for visualization)
-KEYPOINT22_JOINT_MAP = {
-    3: [64, 65], 5: [48, 51], 6: [54, 55], 7: [61],
-    8: [79], 9: [74], 10: [73], 11: [70],
-    12: [104], 13: [99], 14: [98], 15: [95],
-    16: [15], 17: [5], 18: [4],
-    19: [38], 20: [28], 21: [27],
-}
-
-BONES = [
-    [0, 2], [1, 2],
-    [2, 3], [3, 4], [4, 5], [5, 6], [6, 7],
-    [8, 9], [9, 10], [10, 11], [11, 3],
-    [12, 13], [13, 14], [14, 15], [15, 3],
-    [16, 17], [17, 18], [18, 5],
-    [19, 20], [20, 21], [21, 5]
-]
-
-
-def extract_keypoints22(joints_3d: torch.Tensor, device='cpu') -> torch.Tensor:
-    """Extract 22 keypoints from body model joints."""
-    B = joints_3d.shape[0]
-    keypoints = torch.zeros(B, 22, 3, device=device)
-
-    for kp_idx, joint_ids in KEYPOINT22_JOINT_MAP.items():
-        if kp_idx < 22:
-            keypoints[:, kp_idx] = joints_3d[:, joint_ids, :].mean(dim=1)
-
-    keypoints[:, 0] = joints_3d[:, 64, :]
-    keypoints[:, 1] = joints_3d[:, 66, :]
-    keypoints[:, 2] = joints_3d[:, 67, :]
-    keypoints[:, 4] = joints_3d[:, 0, :]
-
-    return keypoints
-
-
-def draw_skeleton(img, kps_2d, color, bones=BONES, radius=4):
-    """Draw skeleton on image."""
-    for i, j in bones:
-        if i < len(kps_2d) and j < len(kps_2d):
-            pt1 = tuple(kps_2d[i].astype(int))
-            pt2 = tuple(kps_2d[j].astype(int))
-            h, w = img.shape[:2]
-            if all(0 <= c < max(h, w) for c in pt1 + pt2):
-                cv2.line(img, pt1, pt2, color, 2)
-
-    for k in range(len(kps_2d)):
-        pt = tuple(kps_2d[k].astype(int))
-        h, w = img.shape[:2]
-        if 0 <= pt[0] < w and 0 <= pt[1] < h:
-            cv2.circle(img, pt, radius, color, -1)
 
 
 def main():

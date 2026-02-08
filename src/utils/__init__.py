@@ -17,6 +17,8 @@ from .transforms import (
     yup_to_zup_quaternions,
     apply_coordinate_transform,
     center_rotation_to_world_translation,
+    build_z_rotation_matrix,
+    apply_yaw_rotation,
     project_points,
 )
 from .geometry import (

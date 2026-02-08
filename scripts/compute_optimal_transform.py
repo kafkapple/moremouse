@@ -23,53 +23,7 @@ import json
 
 from src.models.mouse_body import load_mouse_model
 from src.data import create_mammal_dataloader
-
-
-# Keypoint 22 mapping from MAMMAL body model
-KEYPOINT22_JOINT_MAP = {
-    # Spine/body
-    3: [64, 65],  # Spine mid
-    5: [48, 51],  # Hip
-    6: [54, 55],  # Back
-    7: [61],      # Tail start
-    # Right Front Leg
-    8: [79],      # Shoulder
-    9: [74],      # Elbow
-    10: [73],     # Wrist
-    11: [70],     # Paw
-    # Left Front Leg
-    12: [104],    # Shoulder
-    13: [99],     # Elbow
-    14: [98],     # Wrist
-    15: [95],     # Paw
-    # Right Hind Leg
-    16: [15],     # Hip
-    17: [5],      # Knee
-    18: [4],      # Ankle
-    # Left Hind Leg
-    19: [38],     # Hip
-    20: [28],     # Knee
-    21: [27],     # Ankle
-}
-
-
-def extract_keypoints22(joints_3d, device='cpu'):
-    """Extract 22 keypoints from body model joints."""
-    B = joints_3d.shape[0]
-    keypoints = torch.zeros(B, 22, 3, device=device)
-
-    for kp_idx, joint_ids in KEYPOINT22_JOINT_MAP.items():
-        if kp_idx < 22:
-            joint_positions = joints_3d[:, joint_ids, :]
-            keypoints[:, kp_idx] = joint_positions.mean(dim=1)
-
-    # Vertex-based keypoints (approximations using nearby joints)
-    keypoints[:, 0] = joints_3d[:, 64, :]  # Nose
-    keypoints[:, 1] = joints_3d[:, 66, :]  # Left ear
-    keypoints[:, 2] = joints_3d[:, 67, :]  # Right ear
-    keypoints[:, 4] = joints_3d[:, 0, :]   # Tail base
-
-    return keypoints
+from src.utils.geometry import KEYPOINT22_JOINT_MAP, extract_keypoints22
 
 
 def triangulate_points(pts_2d_multi, Ps, valid_mask):

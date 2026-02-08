@@ -42,6 +42,7 @@ from ..utils.transforms import (
     yup_to_zup_means,
     yup_to_zup_quaternions,
     center_rotation_to_world_translation,
+    apply_yaw_rotation,
 )
 
 
@@ -602,47 +603,10 @@ class GaussianAvatarTrainer:
         )
 
         # Apply yaw rotation (Z-axis rotation from center_rotation.npz)
-        # Order: scale -> base_rotation -> yaw_rotation -> translate
         if yaw_angle is not None:
-            # Build Z-axis rotation matrix from yaw angle [B]
-            yaw = yaw_angle.to(self.device)
-            B = yaw.shape[0]
-            cos_a = torch.cos(yaw)  # [B]
-            sin_a = torch.sin(yaw)  # [B]
-            zeros = torch.zeros_like(cos_a)
-            ones = torch.ones_like(cos_a)
-
-            # R_z = [[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]]
-            R = torch.stack([
-                torch.stack([cos_a, -sin_a, zeros], dim=-1),
-                torch.stack([sin_a, cos_a, zeros], dim=-1),
-                torch.stack([zeros, zeros, ones], dim=-1),
-            ], dim=-2)  # [B, 3, 3]
-
-            # Rotate gaussian means: [B, N, 3] @ [B, 3, 3].T -> [B, N, 3]
-            means = gaussian_params["means"]  # [B, N, 3]
-            rotated_means = torch.einsum('bni,bji->bnj', means, R)  # R^T @ means
-            gaussian_params["means"] = rotated_means
-
-            # Rotate gaussian quaternions: apply R_z to each quaternion
-            # For Z-axis rotation, quaternion is [cos(θ/2), 0, 0, sin(θ/2)]
-            rotations = gaussian_params["rotations"]  # [B, N, 4]
-            N = rotations.shape[1]
-
-            half_angle = yaw / 2.0  # [B]
-            R_quat_wxyz = torch.stack([
-                torch.cos(half_angle),
-                torch.zeros_like(half_angle),
-                torch.zeros_like(half_angle),
-                torch.sin(half_angle),
-            ], dim=-1)  # [B, 4] in (w, x, y, z) format
-
-            for b in range(B):
-                q_old = rotations[b]  # [N, 4]
-                q_new = quaternion_multiply(
-                    R_quat_wxyz[b:b+1].expand(N, -1), q_old
-                )
-                gaussian_params["rotations"][b] = q_new
+            gaussian_params, _ = apply_yaw_rotation(
+                yaw_angle.to(self.device), gaussian_params
+            )
 
         # Apply world translation AFTER scaling and rotation
         if world_trans is not None:
@@ -1013,50 +977,10 @@ class GaussianAvatarTrainer:
             # Apply yaw rotation and translation only in standard mode
             if not canonical_mode:
                 # Apply yaw rotation (Z-axis rotation from center_rotation.npz)
-                # Order: scale -> base_rotation -> yaw_rotation -> translate
                 if yaw_angle is not None:
-                    # Build Z-axis rotation matrix from yaw angle [B]
-                    yaw = yaw_angle.to(self.device)
-                    B = yaw.shape[0]
-                    cos_a = torch.cos(yaw)  # [B]
-                    sin_a = torch.sin(yaw)  # [B]
-                    zeros = torch.zeros_like(cos_a)
-                    ones = torch.ones_like(cos_a)
-
-                    # R_z = [[cos, -sin, 0], [sin, cos, 0], [0, 0, 1]]
-                    R = torch.stack([
-                        torch.stack([cos_a, -sin_a, zeros], dim=-1),
-                        torch.stack([sin_a, cos_a, zeros], dim=-1),
-                        torch.stack([zeros, zeros, ones], dim=-1),
-                    ], dim=-2)  # [B, 3, 3]
-
-                    # Rotate gaussian means: [B, N, 3] @ [B, 3, 3].T -> [B, N, 3]
-                    means = gaussian_params["means"]  # [B, N, 3]
-                    rotated_means = torch.einsum('bni,bji->bnj', means, R)
-                    gaussian_params["means"] = rotated_means
-
-                    # Rotate joints
-                    rotated_joints = torch.einsum('bji,bki->bjk', joints_3d, R)
-                    joints_3d = rotated_joints
-
-                    # Rotate gaussian quaternions: Z-axis rotation quaternion
-                    rotations = gaussian_params["rotations"]  # [B, N, 4]
-                    N = rotations.shape[1]
-
-                    half_angle = yaw / 2.0  # [B]
-                    R_quat_wxyz = torch.stack([
-                        torch.cos(half_angle),
-                        torch.zeros_like(half_angle),
-                        torch.zeros_like(half_angle),
-                        torch.sin(half_angle),
-                    ], dim=-1)  # [B, 4] in (w, x, y, z) format
-
-                    for b in range(B):
-                        q_old = rotations[b]  # [N, 4]
-                        q_new = quaternion_multiply(
-                            R_quat_wxyz[b:b+1].expand(N, -1), q_old
-                        )
-                        gaussian_params["rotations"][b] = q_new
+                    gaussian_params, joints_3d = apply_yaw_rotation(
+                        yaw_angle.to(self.device), gaussian_params, joints_3d
+                    )
 
                 # Apply world translation AFTER rotation and scaling
                 if world_trans is not None:

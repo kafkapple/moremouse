@@ -11,7 +11,7 @@ Coordinate systems:
 """
 
 import math
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 
@@ -154,6 +154,75 @@ def center_rotation_to_world_translation(
     result = center.clone() * METERS_TO_CM
     result = result + platform_offset.to(result.device)
     return result
+
+
+def build_z_rotation_matrix(angles: torch.Tensor) -> torch.Tensor:
+    """Build Z-axis rotation matrices from angles.
+
+    Args:
+        angles: [B] rotation angles in radians
+
+    Returns:
+        [B, 3, 3] rotation matrices
+    """
+    cos_a = torch.cos(angles)
+    sin_a = torch.sin(angles)
+    zeros = torch.zeros_like(cos_a)
+    ones = torch.ones_like(cos_a)
+
+    return torch.stack([
+        torch.stack([cos_a, -sin_a, zeros], dim=-1),
+        torch.stack([sin_a, cos_a, zeros], dim=-1),
+        torch.stack([zeros, zeros, ones], dim=-1),
+    ], dim=-2)  # [B, 3, 3]
+
+
+def apply_yaw_rotation(
+    yaw_angle: torch.Tensor,
+    gaussian_params: dict,
+    extra_points: Optional[torch.Tensor] = None,
+) -> Tuple[dict, Optional[torch.Tensor]]:
+    """Apply Z-axis yaw rotation to Gaussian params and optional points.
+
+    Rotates means, quaternions, and optionally extra points (e.g. joints).
+
+    Args:
+        yaw_angle: [B] yaw rotation angle in radians
+        gaussian_params: Dict with 'means' [B,N,3] and 'rotations' [B,N,4]
+        extra_points: Optional [B,J,3] additional points (e.g. joints)
+
+    Returns:
+        (gaussian_params, rotated_extra_points or None)
+    """
+    yaw = yaw_angle
+    R = build_z_rotation_matrix(yaw)  # [B, 3, 3]
+
+    # Rotate means
+    means = gaussian_params["means"]
+    gaussian_params["means"] = torch.einsum('bni,bji->bnj', means, R)
+
+    # Rotate extra points if provided
+    rotated_extra = None
+    if extra_points is not None:
+        rotated_extra = torch.einsum('bji,bki->bjk', extra_points, R)
+
+    # Rotate quaternions via Z-axis rotation quaternion
+    rotations = gaussian_params["rotations"]  # [B, N, 4]
+    N = rotations.shape[1]
+    half_angle = yaw / 2.0
+    R_quat = torch.stack([
+        torch.cos(half_angle),
+        torch.zeros_like(half_angle),
+        torch.zeros_like(half_angle),
+        torch.sin(half_angle),
+    ], dim=-1)  # [B, 4]
+
+    for b in range(yaw.shape[0]):
+        gaussian_params["rotations"][b] = quaternion_multiply(
+            R_quat[b:b+1].expand(N, -1), rotations[b]
+        )
+
+    return gaussian_params, rotated_extra
 
 
 def project_points(

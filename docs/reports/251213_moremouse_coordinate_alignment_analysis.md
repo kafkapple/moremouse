@@ -173,3 +173,7 @@ Extent: 0.0077 (unit sphere 내 ✓)
 - `scripts/test_canonical_space.py` - Canonical space 테스트 스크립트
 - `outputs/canonical_test/canonical_space_comparison.png` - 비교 시각화
 - `outputs/canonical_test/canonical_space_info.txt` - 설정 정보
+
+---
+
+**See also**: [Refactoring Report](../refactoring/260208_refactoring_report.md) — Coordinate constants centralized into `src/utils/transforms.py` (2026-02-08)

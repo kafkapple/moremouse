@@ -246,54 +246,7 @@ def load_pose_sequence(pose_dir: Path, device: torch.device = None) -> list:
     return poses
 
 
-def quaternion_multiply(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
-    """Multiply two quaternions (w, x, y, z format)."""
-    w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
-    w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
-
-    w = w1*w2 - x1*x2 - y1*y2 - z1*z2
-    x = w1*x2 + x1*w2 + y1*z2 - z1*y2
-    y = w1*y2 - x1*z2 + y1*w2 + z1*x2
-    z = w1*z2 + x1*y2 - y1*x2 + z1*w2
-
-    return torch.stack([w, x, y, z], dim=-1)
-
-
-def apply_coordinate_transform(gaussian_params: dict, device: torch.device, world_scale: float = 160.0) -> dict:
-    """Apply world_scale and Y-up to Z-up coordinate transform.
-
-    Body model uses Y-up coordinate system, but our camera uses Z-up.
-    This applies:
-    1. world_scale to means and scales (model coords -> world coords in mm)
-    2. -90 degree rotation around X axis: Y -> Z, Z -> -Y
-
-    This matches the transform applied in GaussianAvatarTrainer._save_visualization()
-    """
-    import math
-
-    # Apply world_scale to means and scales (like _save_visualization)
-    if world_scale != 1.0:
-        gaussian_params["means"] = gaussian_params["means"] * world_scale
-        gaussian_params["scales"] = gaussian_params["scales"] * world_scale
-
-    # Transform means: [x, y, z] -> [x, z, -y]
-    means = gaussian_params["means"]  # [B, N, 3]
-    x, y, z = means[..., 0], means[..., 1], means[..., 2]
-    gaussian_params["means"] = torch.stack([x, z, -y], dim=-1)
-
-    # Transform quaternions
-    quats = gaussian_params["rotations"]  # [B, N, 4]
-    # Base rotation: -90 degrees around X axis
-    # quaternion = [cos(theta/2), sin(theta/2)*axis]
-    # For -90 deg around X: [cos(-45deg), sin(-45deg), 0, 0]
-    base_quat = torch.tensor(
-        [math.cos(-math.pi/4), math.sin(-math.pi/4), 0, 0],
-        dtype=quats.dtype, device=device
-    )
-    base_quat = base_quat.view(1, 1, 4).expand(quats.shape[0], quats.shape[1], 4)
-    gaussian_params["rotations"] = quaternion_multiply(base_quat, quats)
-
-    return gaussian_params
+from src.utils.transforms import quaternion_multiply, apply_coordinate_transform
 
 
 def render_avatar(

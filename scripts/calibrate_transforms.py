@@ -17,38 +17,7 @@ from tqdm import tqdm
 
 from src.models.mouse_body import load_mouse_model
 from src.data import create_mammal_dataloader
-
-
-def project_points(points_3d, viewmat, K):
-    """Project 3D points to 2D using view matrix and intrinsics."""
-    # points_3d: [N, 3]
-    # viewmat: [4, 4]
-    # K: [3, 3]
-
-    # Transform to camera coords
-    points_homo = torch.cat([points_3d, torch.ones_like(points_3d[:, :1])], dim=-1)  # [N, 4]
-    points_cam = (viewmat @ points_homo.T).T[:, :3]  # [N, 3]
-
-    # Project to 2D
-    points_2d = (K @ points_cam.T).T  # [N, 3]
-    points_2d = points_2d[:, :2] / points_2d[:, 2:3]  # [N, 2]
-
-    return points_2d
-
-
-def build_z_rotation(yaw_angle, device='cpu'):
-    """Build Z-axis rotation matrix from yaw angle."""
-    cos_a = torch.cos(yaw_angle)
-    sin_a = torch.sin(yaw_angle)
-    zeros = torch.zeros_like(cos_a)
-    ones = torch.ones_like(cos_a)
-
-    R = torch.stack([
-        torch.stack([cos_a, -sin_a, zeros], dim=-1),
-        torch.stack([sin_a, cos_a, zeros], dim=-1),
-        torch.stack([zeros, zeros, ones], dim=-1),
-    ], dim=-2)
-    return R
+from src.utils.transforms import project_points, build_z_rotation_matrix
 
 
 def test_parameters(body_model, dataloader, world_scale, platform_offset,
@@ -117,7 +86,7 @@ def test_parameters(body_model, dataloader, world_scale, platform_offset,
 
             # Apply yaw rotation (after base rotation)
             if yaw_angle is not None:
-                R = build_z_rotation(yaw_angle, device)
+                R = build_z_rotation_matrix(yaw_angle)
                 joints_3d = torch.einsum('bji,bki->bjk', joints_3d, R)
 
             # Apply world translation

@@ -574,5 +574,23 @@ def inference(model, image, camera_params):
 
 ---
 
-*문서 생성일: 2024-12-09*
+## Related Documents
+
+- [Refactoring Plan (2026-02-08)](refactoring/260208_refactoring_plan.md) — 3-phase code cleanup plan
+- [Refactoring Report (2026-02-08)](refactoring/260208_refactoring_report.md) — Detailed results and metrics
+- [Coordinate Alignment Analysis](reports/251213_moremouse_coordinate_alignment_analysis.md) — Y-up → Z-up transform rationale
+- [Gaussian Avatar Paper Comparison](reports/251212_gaussian_avatar_paper_comparison.md)
+- [GPU05 Pipeline Guide](guides/gpu05_pipeline_guide.md)
+
+### Shared Utility Modules (added 2026-02-08)
+
+| Module | Purpose |
+|--------|---------|
+| `src/utils/transforms.py` | Coordinate constants, Y-up→Z-up transforms, projection |
+| `src/utils/geometry.py` | 22-keypoint definitions, extraction, skeleton drawing |
+| `src/utils/avatar_visualization.py` | Debug visualization helpers |
+
+---
+
+*문서 생성일: 2024-12-09 | 최종 수정: 2026-02-08*
 *MoReMouse Implementation v1.0*
