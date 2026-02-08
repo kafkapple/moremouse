@@ -175,8 +175,8 @@ def main():
                        default=os.environ.get('MOUSE_MODEL_DIR'),
                        help='Path to mouse model (env: MOUSE_MODEL_DIR)')
     parser.add_argument('--data-dir', type=str,
-                       default=os.environ.get('MAMMAL_DATA_DIR'),
-                       help='Path to data directory (env: MAMMAL_DATA_DIR)')
+                       default=os.environ.get('NERF_DATA_DIR'),
+                       help='Path to NeRF capture data (env: NERF_DATA_DIR)')
     parser.add_argument('--pose-dir', type=str,
                        default=os.environ.get('MAMMAL_POSE_DIR'),
                        help='MAMMAL pose results directory (env: MAMMAL_POSE_DIR)')

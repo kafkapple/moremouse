@@ -323,8 +323,8 @@ def main():
 
     # Data paths (auto-detected from environment config)
     parser.add_argument("--data-dir", type=str,
-                       default=paths.get('data_dir', os.environ.get('MAMMAL_DATA_DIR')),
-                       help='Path to data directory (env: MAMMAL_DATA_DIR)')
+                       default=paths.get('data_dir', os.environ.get('NERF_DATA_DIR')),
+                       help='Path to NeRF capture data (env: NERF_DATA_DIR)')
     parser.add_argument("--mouse-model", type=str,
                        default=paths.get('mouse_model', os.environ.get('MOUSE_MODEL_DIR')),
                        help='Path to mouse model (env: MOUSE_MODEL_DIR)')

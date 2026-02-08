@@ -13,12 +13,12 @@ import os
 def test_loader():
     parser = argparse.ArgumentParser(description="Test canonical loader")
     parser.add_argument('--data-dir', type=str,
-                        default=os.environ.get('MAMMAL_DATA_DIR'),
-                        help='Path to data directory (env: MAMMAL_DATA_DIR)')
+                        default=os.environ.get('NERF_DATA_DIR'),
+                        help='Path to NeRF capture data (env: NERF_DATA_DIR)')
     args = parser.parse_args()
 
     if args.data_dir is None:
-        parser.error("--data-dir is required (or set MAMMAL_DATA_DIR env var)")
+        parser.error("--data-dir is required (or set NERF_DATA_DIR env var)")
 
     data_dir = args.data_dir
     output_dir = "outputs/test_canonical_loader"

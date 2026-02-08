@@ -19,8 +19,8 @@ paths:
 # Can be overridden by environment variables or symlinks
 # Default: expects ../MAMMAL_mouse relative to project root
 external:
-  mammal_data: ${oc.env:MAMMAL_DATA_PATH,${paths.root}/../MAMMAL_mouse/data}
-  mouse_model: ${oc.env:MOUSE_MODEL_PATH,${paths.root}/../MAMMAL_mouse/mouse_model}
+  mammal_data: ${oc.env:MAMMAL_DATA_DIR,${paths.root}/../MAMMAL_mouse/data}
+  mouse_model: ${oc.env:MOUSE_MODEL_DIR,${paths.root}/../MAMMAL_mouse/mouse_model}
 
 # Experiment settings
 experiment:

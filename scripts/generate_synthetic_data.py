@@ -386,13 +386,13 @@ if __name__ == "__main__":
         else:
             # Fallback to environment variable or error
             import os
-            env_path = os.environ.get("MOUSE_MODEL_PATH")
+            env_path = os.environ.get("MOUSE_MODEL_DIR")
             if env_path:
                 args.mouse_model = Path(env_path)
             else:
                 raise FileNotFoundError(
                     f"Mouse model not found at {default_path}. "
-                    "Set MOUSE_MODEL_PATH environment variable or use --mouse-model flag."
+                    "Set MOUSE_MODEL_DIR environment variable or use --mouse-model flag."
                 )
 
     output_dir = project_root / args.output
