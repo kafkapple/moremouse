@@ -13,6 +13,7 @@
 
 | Date | Document | Topic |
 |------|----------|-------|
+| 2026-02-08 | [Paper vs Implementation Audit](reports/260208_paper_vs_implementation_audit.md) | Full paper compliance audit, DMTet analysis |
 | 2025-12-14 | [Test Pipeline Execution](reports/251214_test_pipeline_execution.md) | Pipeline test results |
 | 2025-12-13 | [Coordinate Alignment Analysis](reports/251213_moremouse_coordinate_alignment_analysis.md) | Y-up → Z-up, canonical space |
 | 2025-12-13 | [Option A: Real Camera Projection](reports/251213_option_a_real_camera_projection.md) | Real camera coordinate handling |

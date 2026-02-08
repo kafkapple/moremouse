@@ -463,6 +463,8 @@ L_normal = ||n_pred - n_gt||_2
 L_laplacian = ||Δv||_2  # 이웃 정점과의 차이 최소화
 ```
 
+> **Implementation Status**: DMTet Stage 2는 현재 미구현 (config만 정의, `train.py`에서 skip). NeRF Stage 1만으로 이미지 렌더링 및 포즈 추정 가능. 상세: [Paper vs Implementation Audit](reports/260208_paper_vs_implementation_audit.md#5-dmtet-stage-2-analysis)
+
 ---
 
 ## 6. 학습 설정 (Paper)
