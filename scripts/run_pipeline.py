@@ -322,10 +322,15 @@ def main():
     parser.add_argument("--num-workers", type=int, default=training_config.get('num_workers', 4))
 
     # Data paths (auto-detected from environment config)
-    parser.add_argument("--data-dir", type=str, default=paths.get('data_dir', '/home/joon/data/markerless_mouse_1_nerf'))
-    parser.add_argument("--mouse-model", type=str, default=paths.get('mouse_model', '/home/joon/MAMMAL_mouse/mouse_model'))
-    parser.add_argument("--pose-dir", type=str, default=paths.get('pose_dir', '/home/joon/MAMMAL_mouse/results/monocular/mouse_batch_20251125_132606_mouse_1'),
-                       help="MAMMAL pose estimation results directory (100 frames)")
+    parser.add_argument("--data-dir", type=str,
+                       default=paths.get('data_dir', os.environ.get('MAMMAL_DATA_DIR')),
+                       help='Path to data directory (env: MAMMAL_DATA_DIR)')
+    parser.add_argument("--mouse-model", type=str,
+                       default=paths.get('mouse_model', os.environ.get('MOUSE_MODEL_DIR')),
+                       help='Path to mouse model (env: MOUSE_MODEL_DIR)')
+    parser.add_argument("--pose-dir", type=str,
+                       default=paths.get('pose_dir', os.environ.get('MAMMAL_POSE_DIR')),
+                       help="MAMMAL pose estimation results directory (env: MAMMAL_POSE_DIR)")
 
     # Avatar training
     parser.add_argument("--avatar-frames", type=int, default=800)

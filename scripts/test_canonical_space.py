@@ -15,6 +15,7 @@ This script:
 4. Compares with cropped real images
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -332,10 +333,15 @@ def draw_skeleton(img, kps_2d, color, bones=BONES, radius=4):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mouse-model', type=str, default='/home/joon/MAMMAL_mouse/mouse_model')
-    parser.add_argument('--data-dir', type=str, default='/home/joon/data/markerless_mouse_1_nerf')
+    parser.add_argument('--mouse-model', type=str,
+                       default=os.environ.get('MOUSE_MODEL_DIR'),
+                       help='Path to mouse model (env: MOUSE_MODEL_DIR)')
+    parser.add_argument('--data-dir', type=str,
+                       default=os.environ.get('MAMMAL_DATA_DIR'),
+                       help='Path to data directory (env: MAMMAL_DATA_DIR)')
     parser.add_argument('--pose-dir', type=str,
-                       default='/home/joon/MAMMAL_mouse/results/monocular/mouse_batch_20251125_132606_mouse_1')
+                       default=os.environ.get('MAMMAL_POSE_DIR'),
+                       help='MAMMAL pose results directory (env: MAMMAL_POSE_DIR)')
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--output-dir', type=str, default='outputs/canonical_test')
     parser.add_argument('--n-cameras', type=int, default=6, help='Number of canonical cameras')

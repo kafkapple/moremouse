@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 """Debug rendering to identify white image issue."""
 
+import argparse
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -11,8 +13,17 @@ import cv2
 from src.models.gaussian_avatar import GaussianAvatarTrainer
 from src.models.mouse_body import load_mouse_model
 
+parser = argparse.ArgumentParser(description="Debug rendering")
+parser.add_argument('--mouse-model', type=str,
+                    default=os.environ.get('MOUSE_MODEL_DIR'),
+                    help='Path to mouse model (env: MOUSE_MODEL_DIR)')
+args = parser.parse_args()
+
+if args.mouse_model is None:
+    parser.error("--mouse-model is required (or set MOUSE_MODEL_DIR env var)")
+
 device = torch.device("cuda:0")
-body_model = load_mouse_model("/home/joon/MAMMAL_mouse/mouse_model", device=device)
+body_model = load_mouse_model(args.mouse_model, device=device)
 trainer, iteration = GaussianAvatarTrainer.from_checkpoint(
     "checkpoints/avatar/avatar_final.pt", body_model, device=device
 )

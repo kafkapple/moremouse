@@ -15,6 +15,7 @@ Reference: MoReMouse paper Section 3.1
 """
 
 import json
+import os
 import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -363,12 +364,12 @@ class MAMMALMultiviewDataset(Dataset):
             self.data_dir / "annotations",
         ]
 
-        # Also check for MAMMAL results in parent directories
-        # Pattern: MAMMAL_mouse/results/monocular/mouse_batch_*/
-        mammal_results = list(Path("/home/joon/MAMMAL_mouse/results/monocular").glob("mouse_batch_*"))
-        if mammal_results:
-            # Use the most recent one
-            candidates.extend(sorted(mammal_results, reverse=True))
+        # Also check for MAMMAL results via MAMMAL_RESULTS_DIR env var
+        mammal_results_dir = os.environ.get("MAMMAL_RESULTS_DIR")
+        if mammal_results_dir:
+            mammal_results = list(Path(mammal_results_dir).glob("mouse_batch_*"))
+            if mammal_results:
+                candidates.extend(sorted(mammal_results, reverse=True))
 
         for path in candidates:
             if path.exists() and any(path.glob("*.pkl")) or any(path.glob("*.npy")):
@@ -471,9 +472,13 @@ class MAMMALMultiviewDataset(Dataset):
             self.data_dir / "keypoints2d_undist",
             self.data_dir / "keypoints2d",
             self.data_dir.parent / "keypoints2d_undist",
-            # MAMMAL_mouse structure
-            Path("/home/joon/MAMMAL_mouse/data") / self.data_dir.name / "keypoints2d_undist",
         ])
+        # Also check MAMMAL_DATA_DIR env var
+        mammal_data_dir = os.environ.get("MAMMAL_DATA_DIR")
+        if mammal_data_dir:
+            candidates.append(
+                Path(mammal_data_dir) / self.data_dir.name / "keypoints2d_undist"
+            )
 
         kp_dir = None
         for cand in candidates:

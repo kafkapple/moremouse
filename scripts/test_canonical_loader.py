@@ -1,4 +1,5 @@
 
+import argparse
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -10,8 +11,16 @@ import torch
 import os
 
 def test_loader():
-    # Setup
-    data_dir = "/home/joon/data/markerless_mouse_1_nerf"
+    parser = argparse.ArgumentParser(description="Test canonical loader")
+    parser.add_argument('--data-dir', type=str,
+                        default=os.environ.get('MAMMAL_DATA_DIR'),
+                        help='Path to data directory (env: MAMMAL_DATA_DIR)')
+    args = parser.parse_args()
+
+    if args.data_dir is None:
+        parser.error("--data-dir is required (or set MAMMAL_DATA_DIR env var)")
+
+    data_dir = args.data_dir
     output_dir = "outputs/test_canonical_loader"
     os.makedirs(output_dir, exist_ok=True)
     
