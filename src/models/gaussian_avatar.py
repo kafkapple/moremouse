@@ -539,26 +539,6 @@ class GaussianAvatarTrainer:
 
         return surface_loss
 
-    def _quaternion_multiply(self, q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
-        """
-        Multiply two quaternions (Hamilton product).
-
-        Args:
-            q1, q2: [N, 4] quaternions in (w, x, y, z) format
-
-        Returns:
-            [N, 4] product quaternion q1 * q2
-        """
-        w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
-        w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
-
-        w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-        x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-        y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
-        z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
-
-        return torch.stack([w, x, y, z], dim=-1)
-
     def train_step(
         self,
         pose: torch.Tensor,
@@ -621,11 +601,10 @@ class GaussianAvatarTrainer:
         # Also rotate quaternions for base rotation
         rotations = gaussian_params["rotations"]  # [B, N, 4] (w, x, y, z)
         # Quaternion for -90 deg X rotation: (cos(-45), sin(-45), 0, 0) = (0.7071, -0.7071, 0, 0)
-        import math
         base_quat = torch.tensor([math.cos(-math.pi/4), math.sin(-math.pi/4), 0, 0],
                                   dtype=rotations.dtype, device=rotations.device)
         base_quat = base_quat.view(1, 1, 4).expand(rotations.shape[0], rotations.shape[1], 4)
-        gaussian_params["rotations"] = self._quaternion_multiply(base_quat, rotations)
+        gaussian_params["rotations"] = quaternion_multiply(base_quat, rotations)
 
         # Apply yaw rotation (Z-axis rotation from center_rotation.npz)
         # Order: scale -> base_rotation -> yaw_rotation -> translate
@@ -665,7 +644,7 @@ class GaussianAvatarTrainer:
 
             for b in range(B):
                 q_old = rotations[b]  # [N, 4]
-                q_new = self._quaternion_multiply(
+                q_new = quaternion_multiply(
                     R_quat_wxyz[b:b+1].expand(N, -1), q_old
                 )
                 gaussian_params["rotations"][b] = q_new
@@ -1041,11 +1020,10 @@ class GaussianAvatarTrainer:
 
                 # Rotate quaternions for base rotation
                 quats = gaussian_params["rotations"]  # [B, N, 4]
-                import math
                 base_quat = torch.tensor([math.cos(-math.pi/4), math.sin(-math.pi/4), 0, 0],
                                           dtype=quats.dtype, device=quats.device)
                 base_quat = base_quat.view(1, 1, 4).expand(quats.shape[0], quats.shape[1], 4)
-                gaussian_params["rotations"] = self._quaternion_multiply(base_quat, quats)
+                gaussian_params["rotations"] = quaternion_multiply(base_quat, quats)
             else:
                 # Standard mode: apply world_scale and transforms
                 # Apply world_scale to joints and gaussians
@@ -1066,11 +1044,10 @@ class GaussianAvatarTrainer:
 
                 # Rotate quaternions for base rotation
                 quats = gaussian_params["rotations"]  # [B, N, 4]
-                import math
                 base_quat = torch.tensor([math.cos(-math.pi/4), math.sin(-math.pi/4), 0, 0],
                                           dtype=quats.dtype, device=quats.device)
                 base_quat = base_quat.view(1, 1, 4).expand(quats.shape[0], quats.shape[1], 4)
-                gaussian_params["rotations"] = self._quaternion_multiply(base_quat, quats)
+                gaussian_params["rotations"] = quaternion_multiply(base_quat, quats)
 
             # Apply yaw rotation and translation only in standard mode
             if not canonical_mode:
@@ -1115,7 +1092,7 @@ class GaussianAvatarTrainer:
 
                     for b in range(B):
                         q_old = rotations[b]  # [N, 4]
-                        q_new = self._quaternion_multiply(
+                        q_new = quaternion_multiply(
                             R_quat_wxyz[b:b+1].expand(N, -1), q_old
                         )
                         gaussian_params["rotations"][b] = q_new

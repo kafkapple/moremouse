@@ -305,7 +305,7 @@ python scripts/inference.py \
 - **140 articulated joints** with hierarchical structure
 - **13,059 vertices** for detailed mesh representation
 - **Linear Blend Skinning (LBS)** with adaptive bone length scaling
-- **ZYX Euler angle** rotation convention
+- **Axis-angle** rotation convention (MAMMAL format, 140 joints x 3)
 - **22 semantic keypoints** extraction support
 
 ### Gaussian Mouse Avatar (AGAM)

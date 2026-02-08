@@ -429,20 +429,15 @@ class Trainer:
             if self.scheduler is not None:
                 self.scheduler.step()
 
-        # Stage 2: DMTet (if implemented)
-        self.logger.info("=== Stage 2: DMTet Training ===")
-        self.model.render_mode = "dmtet"
+        # Stage 2: DMTet (not yet implemented)
         dmtet_epochs = self.cfg.train.stages.dmtet.epochs
-
-        for epoch in range(dmtet_epochs):
-            self.current_epoch = nerf_epochs + epoch
-            self._train_epoch()
-
-            if (epoch + 1) % self.cfg.logging.eval_freq == 0:
-                self._validate()
-
-            if self.scheduler is not None:
-                self.scheduler.step()
+        if dmtet_epochs > 0:
+            self.logger.warning(
+                "=== Stage 2: DMTet Training SKIPPED === "
+                "DMTet renderer is not yet implemented. "
+                f"Skipping {dmtet_epochs} DMTet epochs. "
+                "The model will use NeRF rendering only."
+            )
 
         self.logger.info("Training completed!")
 
@@ -462,7 +457,7 @@ class Trainer:
             target_embedding = batch["embedding"].to(self.device)
 
             # Forward pass with AMP autocast
-            with torch.cuda.amp.autocast(enabled=self.use_amp):
+            with torch.amp.autocast("cuda", enabled=self.use_amp):
                 outputs = self.model(
                     input_images,
                     viewmats=viewmats,
@@ -547,7 +542,7 @@ class Trainer:
                 Ks = batch["K"].to(self.device)
 
                 # Forward pass with AMP autocast
-                with torch.cuda.amp.autocast(enabled=self.use_amp):
+                with torch.amp.autocast("cuda", enabled=self.use_amp):
                     outputs = self.model(
                         input_images,
                         viewmats=viewmats,
