@@ -2,14 +2,18 @@
 # Setup conda activate/deactivate hooks to auto-load .env
 #
 # Usage:
-#   bash scripts/setup_env.sh
+#   bash scripts/setup_env.sh [conda_env_name]
+#
+# Examples:
+#   bash scripts/setup_env.sh          # uses 'mouse' env (default)
+#   bash scripts/setup_env.sh moremouse  # uses 'moremouse' env
 #
 # After setup, environment variables are automatically loaded/unloaded
-# when you run: conda activate moremouse / conda deactivate
+# when you run: conda activate <env_name> / conda deactivate
 
 set -euo pipefail
 
-CONDA_ENV_NAME="moremouse"
+CONDA_ENV_NAME="${1:-mouse}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="$PROJECT_DIR/.env"
