@@ -51,3 +51,9 @@ gpu03:
 
 If `/home/joon` is storage-constrained, stop and confirm an alternative such as `/node_data/joon/results/MoReMouse`.
 
+## Conda Environments
+
+- Local macOS: `environment.yml`
+- gpu03 Linux/CUDA: `environment.gpu03.yml`
+
+Both must create an environment named `moremouse`; never install project dependencies into base.

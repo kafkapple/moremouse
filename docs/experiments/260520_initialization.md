@@ -7,6 +7,7 @@
 - Created local project scaffold.
 - Created local conda env `moremouse`.
 - Ran scaffold tests: `8 passed in 6.93s`.
+- Added gpu03-specific CUDA conda environment file: `environment.gpu03.yml`.
 - Checked gpu03 resources:
   - disk: about 408GB available on `/`
   - GPUs: 8 RTX PRO 6000 Blackwell Max-Q devices
