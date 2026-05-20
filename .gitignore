@@ -6,6 +6,5 @@ __pycache__/
 .DS_Store
 configs/local.yaml
 outputs/
-data/
+/data/
 wandb/
-
