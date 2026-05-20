@@ -14,6 +14,12 @@
 - Build a tiny synthetic camera set.
 - Run geodesic embedding on a toy mesh graph.
 - Save a 2x2 visualization grid.
+- Build the markerless/MAMMAL fitting asset manifest on gpu03:
+
+```bash
+cd /home/joon/dev/MoReMouse
+PYTHONPATH=src /home/joon/anaconda3/bin/conda run -n moremouse python scripts/build_mammal_asset_manifest.py
+```
 
 ## GPU03 Preflight
 
@@ -49,4 +55,3 @@ Required:
 - compute PSNR, SSIM, LPIPS, mask IoU where available
 - save novel-view grid
 - save turntable video
-

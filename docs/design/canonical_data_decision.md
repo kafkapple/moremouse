@@ -45,6 +45,18 @@ Override fitting source for known bad frames:
 
 This contains 23 accurate refits and should override production keyframes for those exact frame ids.
 
+Generated manifest:
+
+```text
+/home/joon/results/MoReMouse/datasets/markerless_mouse_1_nerf_mammal_accurate_manifest.json
+```
+
+Current count:
+
+- total fitting assets: 900
+- primary production keyframes: 877
+- `refit_accurate_23` overrides: 23
+
 ## Rationale
 
 The MAMMAL refit report identifies accurate fitting with six views, 22 keypoints, and `mask_step2=3000` as the best available high-quality path. The same report notes a sweep where `s1=400, mask_step2=3000` was best overall, but the available production-scale artifacts use the near-optimal accurate config (`s1=200, mask_step2=3000`) and are already generated for 900 keyframes. For immediate MoReMouse work, available high-quality generated artifacts are more valuable than an ungenerated marginally better setting.

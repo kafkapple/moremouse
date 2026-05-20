@@ -12,6 +12,8 @@
 - Ran gpu03 scaffold tests: `8 passed in 0.33s`.
 - Verified gpu03 PyTorch CUDA: torch 2.5.1, CUDA available, 8 devices visible.
 - Confirmed first dataset direction: `markerless_mouse_1_nerf` with MAMMAL preprocessing, segmentation masks, keypoints, and accurate MAMMAL fitting outputs.
+- Built gpu03 fitting asset manifest at `/home/joon/results/MoReMouse/datasets/markerless_mouse_1_nerf_mammal_accurate_manifest.json`.
+- Manifest contains 900 fitted keyframe assets: 877 primary production keyframes and 23 `refit_accurate_23` overrides.
 - Checked gpu03 resources:
   - disk: about 408GB available on `/`
   - GPUs: 8 RTX PRO 6000 Blackwell Max-Q devices
