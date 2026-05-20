@@ -99,8 +99,7 @@ Exit criteria:
 
 ## Open Decisions
 
-- Canonical mesh and fitting source.
+- Canonical mesh and fitting source: decided for first pass as MAMMAL accurate 6-view production keyframes with `refit_accurate_23` overrides.
 - Whether to port code from BehaviorSplatter GSLRM modules or keep this repo independent.
 - GPU03 result root and dataset cache root.
 - Whether to use official MoReMouse code if released later.
-

@@ -1,0 +1,46 @@
+dataset:
+  id: markerless_mouse_1_nerf_mammal_accurate
+  root: /home/joon/dev/MAMMAL_mouse/data/raw/markerless_mouse_1_nerf
+  manifest: /home/joon/results/MoReMouse/datasets/markerless_mouse_1_nerf_mammal_accurate_manifest.json
+  image_resolution: [800, 800]
+  source:
+    type: video_multiview
+    rgb_videos: videos_undist
+    segmentation_masks: simpleclick_undist
+    keypoints2d: keypoints2d_undist
+    keypoints3d: add_labels_3d_8keypoints.pkl
+    cameras:
+      primary: new_cam.pkl
+      h5: camera_params.h5
+      center_rotation: center_rotation.npz
+  views: [0, 1, 2, 3, 4, 5]
+  split:
+    train_frames: [0, 5999]
+    eval_frames: [6000, 11999]
+  fitting:
+    primary:
+      method: mammal_accurate_6views
+      config: /home/joon/dev/MAMMAL_mouse/conf/experiment/accurate_6views.yaml
+      obj_dirs:
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part1/obj
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part2/obj
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part3/obj
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part4/obj
+      param_dirs:
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part1/params
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part2/params
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part3/params
+        - /home/joon/dev/MAMMAL_mouse/results/fitting/production_keyframes_part4/params
+      frame_interval: 20
+      frame_range: [0, 17980]
+      frame_count: 900
+    overrides:
+      bad_frame_refit:
+        method: mammal_accurate_6views_refit
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/refit_accurate_23/obj
+        param_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/refit_accurate_23/params
+        frame_count: 23
+    validation_reference:
+      report: /home/joon/dev/MAMMAL_mouse/docs/reports/260323_mesh_refit_experiment_report.md
+      baseline_iou: /home/joon/dev/MAMMAL_mouse/results/comparison/baseline_iou/baseline_iou.json
+      refit_iou: /home/joon/dev/MAMMAL_mouse/results/comparison/refit_23/iou_report.json

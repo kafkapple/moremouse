@@ -61,10 +61,19 @@ Each dataset split must record:
 
 ## First Dataset Gate
 
-Before training, confirm:
+Decision for the first implementation pass:
 
-- exact source sequence
-- exact mesh/fitting version
+- source sequence: `markerless_mouse_1_nerf`
+- RGB: `videos_undist`
+- masks: `simpleclick_undist`
+- 2D keypoints: `keypoints2d_undist`
+- 3D keypoints: `add_labels_3d_8keypoints.pkl`
+- primary fitting: `production_keyframes_part1..4`
+- bad-frame overrides: `refit_accurate_23`
+
+See [Canonical Data Decision](canonical_data_decision.md).
+
+Before training, still confirm:
+
 - exact output cache root on gpu03
 - whether synthetic rendered data may be generated from existing MAMMAL outputs
-
