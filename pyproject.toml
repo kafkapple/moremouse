@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moremouse"
+version = "0.1.0"
+description = "MoReMouse-style monocular dense 3D mouse reconstruction scaffold"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "pydantic>=2.7",
+  "omegaconf>=2.3",
+  "loguru>=0.7",
+  "pillow>=10.3",
+  "jaxtyping>=0.2.29",
+  "beartype>=0.18.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+

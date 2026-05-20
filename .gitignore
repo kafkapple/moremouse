@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pyc
+.DS_Store
+configs/local.yaml
+outputs/
+data/
+wandb/
+

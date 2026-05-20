@@ -1,0 +1,40 @@
+seed: 260520
+
+paths:
+  result_root: /Users/joon/results/MoReMouse
+  local_repo_root: /Users/joon/dev/MoReMouse
+  gpu_repo_root: /home/joon/dev/MoReMouse
+  gpu_result_root: /home/joon/results/MoReMouse
+
+dataset:
+  id: markerless_mouse_1_unconfirmed
+  root: null
+  manifest: null
+  image_resolution: [800, 800]
+
+render:
+  camera_radius: 2.22
+  fov_degrees: 29.86
+  train_views_per_scene: 64
+  eval_views: 4
+  mouse_scale: 0.005555555555555556
+
+model:
+  image_resolution: [378, 378]
+  triplane_size: 64
+  triplane_channels: 512
+  upsampled_triplane_size: 128
+  upsampled_triplane_channels: 80
+
+training:
+  conda_env: moremouse
+  learning_rate: 1.0e-5
+  warmup_steps: 3000
+  nerf_epochs: 60
+  dmtet_epochs: 100
+  lambda_mse: 1.0
+  lambda_lpips: 1.0
+  lambda_mask: 0.3
+  lambda_smooth: 0.2
+  lambda_depth: 0.2
+
