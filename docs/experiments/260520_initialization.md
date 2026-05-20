@@ -8,6 +8,9 @@
 - Created local conda env `moremouse`.
 - Ran scaffold tests: `8 passed in 6.93s`.
 - Added gpu03-specific CUDA conda environment file: `environment.gpu03.yml`.
+- Created gpu03 conda env `moremouse`.
+- Ran gpu03 scaffold tests: `8 passed in 0.33s`.
+- Verified gpu03 PyTorch CUDA: torch 2.5.1, CUDA available, 8 devices visible.
 - Checked gpu03 resources:
   - disk: about 408GB available on `/`
   - GPUs: 8 RTX PRO 6000 Blackwell Max-Q devices
