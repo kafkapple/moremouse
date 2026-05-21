@@ -58,6 +58,7 @@ def main() -> None:
             row = {
                 "frame_id": frame_id,
                 "candidate": str(candidate.name),
+                "setting": str(candidate.setting),
                 "obj_path": str(obj_path),
                 "mean_silhouette_iou": float(np.mean(scores)),
                 "view_silhouette_iou": [float(score) for score in scores],
@@ -73,6 +74,7 @@ def main() -> None:
             threshold,
             cameras,
             [int(value) for value in cfg.mesh_candidate_audit.panel_cell_size],
+            OmegaConf.to_container(cfg.mesh_candidate_audit.panel_style, resolve=True),
             output_root / f"frame_{frame_id:06d}_candidate_panels.png",
         )
     report = {"rows": rows, "best_by_frame": best_by_frame(rows)}

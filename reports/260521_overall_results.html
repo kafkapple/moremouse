@@ -202,6 +202,15 @@
     아래 패널은 후보별로 RGB, GT mask, mesh mask, overlap-only, mesh-only FP, GT-only FN을 분리해 보여준다.
     한 칸에는 한 종류의 색상만 표시되므로 후보 간 차이를 겹침 없이 확인할 수 있다.
   </p>
+  <ul>
+    <li>색상: green = GT mask와 mesh mask의 overlap, red = mesh-only false positive, blue = GT-only false negative</li>
+    <li>production_3600_canon: production baseline, canonical rotation smoothing</li>
+    <li>production_3600_slerp: production baseline, slerp rotation interpolation</li>
+    <li>accurate_3000 / accurate_5000: recent single-frame accurate refit, iteration 수 차이</li>
+    <li>multi_hyp_default / multi_hyp_mask_heavy: multi-hypothesis refit, default vs mask-heavy objective weights</li>
+    <li>refit_accurate_23: selected hard-frame accurate refit override set</li>
+    <li>rearing_test_exp_a/b: rearing-specific test experiments</li>
+  </ul>
   <div class="grid">
     <div class="metric"><strong>0.654 → 0.796</strong><span>frame 1030: production → accurate_3000 / multi_hyp_default</span></div>
     <div class="metric"><strong>0.763 → 0.827</strong><span>frame 1450: production → accurate_3000 / multi_hyp_default</span></div>

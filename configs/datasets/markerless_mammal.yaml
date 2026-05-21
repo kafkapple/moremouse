@@ -54,48 +54,74 @@ dataset:
       refit_iou: /home/joon/dev/MAMMAL_mouse/results/comparison/refit_23/iou_report.json
   mesh_candidate_audit:
     panel_cell_size: [320, 240]
+    panel_style:
+      title_bar_height: 52
+      title_font_size: 24
+      detail_header_height: 124
+      detail_header_font_size: 26
+      detail_meta_font_size: 19
+      detail_grid_size: [3, 2]
     frames:
       - frame_id: 1030
         candidates:
           - name: production_3600_canon
+            setting: production baseline, canonical rotation smoothing
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_canon/obj/step_2_frame_001030.obj
           - name: production_3600_slerp
+            setting: production baseline, slerp rotation interpolation
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_slerp/obj/step_2_frame_001030.obj
           - name: accurate_3000_093603
+            setting: recent single-frame accurate refit, 3000 iterations
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/markerless_mouse_1_nerf_v012345_kp22_20260521_093603/obj/step_2_frame_001030.obj
           - name: accurate_5000_094837
+            setting: recent single-frame accurate refit, 5000 iterations
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/markerless_mouse_1_nerf_v012345_kp22_20260521_094837/obj/step_2_frame_001030.obj
           - name: multi_hyp_default
+            setting: multi-hypothesis refit, default objective weights
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/multi_hypothesis_refit_260521_pilot1/accurate_default/obj/step_2_frame_001030.obj
           - name: multi_hyp_mask_heavy
+            setting: multi-hypothesis refit, mask-heavy objective weights
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/multi_hypothesis_refit_260521_pilot1/mask_heavy/obj/step_2_frame_001030.obj
       - frame_id: 1450
         candidates:
           - name: production_3600_canon
+            setting: production baseline, canonical rotation smoothing
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_canon/obj/step_2_frame_001450.obj
           - name: production_3600_slerp
+            setting: production baseline, slerp rotation interpolation
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_slerp/obj/step_2_frame_001450.obj
           - name: accurate_5000_182250
+            setting: recent single-frame accurate refit, 5000 iterations
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/markerless_mouse_1_nerf_v012345_kp22_20260520_182250/obj/step_2_frame_001450.obj
           - name: accurate_3000_093054
+            setting: recent single-frame accurate refit, 3000 iterations
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/markerless_mouse_1_nerf_v012345_kp22_20260521_093054/obj/step_2_frame_001450.obj
           - name: accurate_5000_094020
+            setting: recent single-frame accurate refit, 5000 iterations
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/markerless_mouse_1_nerf_v012345_kp22_20260521_094020/obj/step_2_frame_001450.obj
           - name: multi_hyp_default
+            setting: multi-hypothesis refit, default objective weights
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/multi_hypothesis_refit_260521_pilot1/accurate_default/obj/step_2_frame_001450.obj
           - name: multi_hyp_mask_heavy
+            setting: multi-hypothesis refit, mask-heavy objective weights
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/multi_hypothesis_refit_260521_pilot1/mask_heavy/obj/step_2_frame_001450.obj
           - name: residual_deform_v2
+            setting: residual deformation pilot v2, non-template residual correction
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/residual_deform_pilot_260521_v2/residual_frame_001450.obj
       - frame_id: 10080
         candidates:
           - name: production_3600_canon
+            setting: production baseline, canonical rotation smoothing
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_canon/obj/step_2_frame_010080.obj
           - name: production_3600_slerp
+            setting: production baseline, slerp rotation interpolation
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_slerp/obj/step_2_frame_010080.obj
           - name: refit_accurate_23
+            setting: accurate refit override set, 23 selected hard frames
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/refit_accurate_23/obj/step_2_frame_010080.obj
           - name: rearing_test_exp_a
+            setting: rearing-specific test experiment A
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/rearing_test_exp_a/obj/step_2_frame_010080.obj
           - name: rearing_test_exp_b
+            setting: rearing-specific test experiment B
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/rearing_test_exp_b/obj/step_2_frame_010080.obj
