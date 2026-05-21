@@ -6,6 +6,7 @@ dataset:
   outputs:
     sanity_dir: /home/joon/results/MoReMouse/figures/sanity_260521
     tiny_mask_baseline_dir: /home/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521
+    mesh_preview_dir: /home/joon/results/MoReMouse/figures/mammal_mesh_preview_260521
   source:
     type: video_multiview
     rgb_videos: videos_undist
