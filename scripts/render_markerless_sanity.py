@@ -36,7 +36,11 @@ def main() -> None:
             mask_path = frame_dir / f"mask_v{view}_f{frame_id:06d}.png"
             extract_frame(root / cfg.source.rgb_videos / f"{view}.mp4", frame_id, rgb_path)
             extract_frame(root / cfg.source.segmentation_masks / f"{view}.mp4", frame_id, mask_path)
-            image = overlay_mask(load_rgb(rgb_path), Image.open(mask_path))
+            image = overlay_mask(
+                load_rgb(rgb_path),
+                Image.open(mask_path),
+                threshold=int(cfg.visualization.mask_binary_threshold),
+            )
             image = draw_keypoints(image, keypoints_by_view[view][frame_id])
             cells.append(_label(image.resize((320, 320)), f"view {view} frame {frame_id}"))
         grid_path = grid_dir / f"grid_{grid_index:03d}_frame_{frame_id:06d}.png"

@@ -9,6 +9,58 @@ from PIL import Image, ImageDraw
 from jaxtyping import Float
 
 
+KEYPOINT_NAMES = (
+    "L_ear",
+    "R_ear",
+    "nose",
+    "neck",
+    "body_middle",
+    "tail_root",
+    "tail_middle",
+    "tail_end",
+    "L_paw",
+    "L_paw_end",
+    "L_elbow",
+    "L_shoulder",
+    "R_paw",
+    "R_paw_end",
+    "R_elbow",
+    "R_shoulder",
+    "L_foot",
+    "L_knee",
+    "L_hip",
+    "R_foot",
+    "R_knee",
+    "R_hip",
+)
+
+
+KEYPOINT_COLORS = (
+    (230, 57, 70),
+    (255, 159, 28),
+    (255, 209, 102),
+    (42, 157, 143),
+    (46, 196, 182),
+    (17, 138, 178),
+    (67, 97, 238),
+    (114, 9, 183),
+    (255, 0, 110),
+    (131, 56, 236),
+    (58, 134, 255),
+    (6, 214, 160),
+    (255, 99, 72),
+    (255, 183, 3),
+    (33, 158, 188),
+    (2, 48, 71),
+    (173, 181, 189),
+    (108, 117, 125),
+    (73, 80, 87),
+    (144, 190, 109),
+    (249, 132, 74),
+    (87, 117, 144),
+)
+
+
 def load_rgb(path: Path) -> Image.Image:
     """Load an image as RGB."""
     if not path.exists():
@@ -16,15 +68,24 @@ def load_rgb(path: Path) -> Image.Image:
     return Image.open(path).convert("RGB")
 
 
-def overlay_mask(rgb: Image.Image, mask: Image.Image, alpha: float = 0.35) -> Image.Image:
+def overlay_mask(
+    rgb: Image.Image,
+    mask: Image.Image,
+    alpha: float = 0.35,
+    threshold: int = 0,
+) -> Image.Image:
     """Overlay a binary or grayscale segmentation mask on an RGB image."""
     if not 0.0 <= alpha <= 1.0:
         raise ValueError("alpha must be in [0, 1]")
+    max_value = int(np.iinfo(np.uint8).max)
+    if not 0 <= threshold <= max_value:
+        raise ValueError("threshold must be in [0, 255]")
     base = rgb.convert("RGB")
     mask_l = mask.convert("L").resize(base.size)
     color = Image.new("RGB", base.size, (30, 180, 255))
     blended = Image.blend(base, color, alpha)
-    return Image.composite(blended, base, mask_l.point(lambda value: 255 if value > 0 else 0))
+    binary = mask_l.point(lambda value: max_value if value > threshold else 0)
+    return Image.composite(blended, base, binary)
 
 
 def draw_keypoints(
@@ -39,13 +100,12 @@ def draw_keypoints(
         raise ValueError("keypoints contain non-finite coordinates")
     output = image.copy()
     draw = ImageDraw.Draw(output)
-    colors = [(255, 70, 70), (255, 210, 60), (60, 220, 130), (255, 120, 220)]
     for index, point in enumerate(keypoints):
         if point.shape[0] >= 3 and point[2] <= 0:
             continue
         x_coord = float(point[0])
         y_coord = float(point[1])
-        color = colors[index % len(colors)]
+        color = KEYPOINT_COLORS[index % len(KEYPOINT_COLORS)]
         draw.ellipse(
             (x_coord - radius, y_coord - radius, x_coord + radius, y_coord + radius),
             fill=color,

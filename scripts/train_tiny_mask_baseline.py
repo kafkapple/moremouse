@@ -28,7 +28,13 @@ def main() -> None:
 
     frame_ids = [0, 20, 40, 60, 80, 100]
     views = [0, 1, 2, 3, 4, 5]
-    inputs, targets = _load_samples(root, frame_ids, views, output_root / "frames")
+    inputs, targets = _load_samples(
+        root,
+        frame_ids,
+        views,
+        output_root / "frames",
+        int(cfg.visualization.mask_binary_threshold),
+    )
     dataset = TensorDataset(inputs, targets)
     loader = DataLoader(dataset, batch_size=6, shuffle=True)
 
@@ -89,7 +95,13 @@ class _TinyMaskNet:
         )
 
 
-def _load_samples(root: Path, frame_ids: list[int], views: list[int], frame_dir: Path):
+def _load_samples(
+    root: Path,
+    frame_ids: list[int],
+    views: list[int],
+    frame_dir: Path,
+    mask_threshold: int,
+):
     import numpy as np
     import torch
 
@@ -104,7 +116,11 @@ def _load_samples(root: Path, frame_ids: list[int], views: list[int], frame_dir:
             rgb = Image.open(rgb_path).convert("RGB").resize((128, 128))
             mask = Image.open(mask_path).convert("L").resize((128, 128))
             images.append(np.asarray(rgb, dtype=np.float32).transpose(2, 0, 1) / 255.0)
-            masks.append((np.asarray(mask, dtype=np.float32)[None, ...] > 0).astype(np.float32))
+            masks.append(
+                (np.asarray(mask, dtype=np.float32)[None, ...] > mask_threshold).astype(
+                    np.float32
+                )
+            )
     return torch.tensor(np.stack(images)), torch.tensor(np.stack(masks))
 
 
