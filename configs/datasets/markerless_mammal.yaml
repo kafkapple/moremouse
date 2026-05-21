@@ -7,6 +7,7 @@ dataset:
     sanity_dir: /home/joon/results/MoReMouse/figures/sanity_260521
     tiny_mask_baseline_dir: /home/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521
     mesh_preview_dir: /home/joon/results/MoReMouse/figures/mammal_mesh_preview_260521
+    camera_projection_audit_dir: /home/joon/results/MoReMouse/figures/camera_projection_audit_260521
   visualization:
     mask_binary_threshold: 127
   source:
