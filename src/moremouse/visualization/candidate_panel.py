@@ -136,7 +136,7 @@ def draw_detail_header(image: Image.Image, candidate: str) -> None:
     """Draw a large candidate label above a detail grid."""
     draw = ImageDraw.Draw(image)
     draw.rectangle((0, 0, image.width, DETAIL_HEADER_HEIGHT), fill=(0, 0, 0))
-    label = f"candidate: {candidate} | columns: RGB, GT, mesh, overlap, mesh-only FP, GT-only FN"
+    label = f"candidate: {candidate} | panels: RGB GT mesh overlap FP FN"
     draw.text((14, 14), label, fill=(255, 255, 255), font=label_font(DETAIL_HEADER_FONT_SIZE))
 
 
