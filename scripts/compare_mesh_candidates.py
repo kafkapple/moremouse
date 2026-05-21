@@ -12,11 +12,11 @@ from PIL import Image, ImageDraw
 
 from moremouse.data.video_frames import extract_frame
 from moremouse.geometry.obj import load_obj_mesh
+from moremouse.geometry.projection import binary_iou, project_vertices, rasterize_projected_silhouette
+from moremouse.visualization.candidate_panel import save_candidate_panels
+from moremouse.visualization.overlay import load_rgb
 from scripts.audit_camera_projection import (
-    binary_iou,
     overlay_mesh_silhouette,
-    project_vertices,
-    rasterize_projected_silhouette,
 )
 
 
@@ -34,7 +34,9 @@ def main() -> None:
     rows = []
     for frame_cfg in cfg.mesh_candidate_audit.frames:
         frame_id = int(frame_cfg.frame_id)
-        masks = load_masks(root, frame_id, views, output_root / "frames")
+        frame_dir = output_root / "frames"
+        masks = load_masks(root, frame_id, views, frame_dir)
+        rgbs = load_rgbs(root, frame_id, views, frame_dir, str(cfg.source.rgb_videos))
         frame_rows = []
         for candidate in frame_cfg.candidates:
             obj_path = Path(candidate.obj_path)
@@ -63,6 +65,16 @@ def main() -> None:
             rows.append(row)
             frame_rows.append((row, cells))
         save_frame_grid(frame_rows, output_root / f"frame_{frame_id:06d}_candidate_grid.png")
+        save_candidate_panels(
+            frame_rows,
+            views,
+            rgbs,
+            masks,
+            threshold,
+            cameras,
+            [int(value) for value in cfg.mesh_candidate_audit.panel_cell_size],
+            output_root / f"frame_{frame_id:06d}_candidate_panels.png",
+        )
     report = {"rows": rows, "best_by_frame": best_by_frame(rows)}
     (output_root / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Wrote mesh candidate report to {}", output_root / "report.json")
@@ -77,6 +89,22 @@ def load_masks(root: Path, frame_id: int, views: list[int], frame_dir: Path) -> 
         extract_frame(root / "simpleclick_undist" / f"{view}.mp4", frame_id, mask_path)
         masks[view] = Image.open(mask_path).convert("L")
     return masks
+
+
+def load_rgbs(
+    root: Path,
+    frame_id: int,
+    views: list[int],
+    frame_dir: Path,
+    video_dir: str,
+) -> dict[int, Image.Image]:
+    """Extract and load RGB frames for all views."""
+    rgbs = {}
+    for view in views:
+        rgb_path = frame_dir / f"rgb_v{view}_f{frame_id:06d}.png"
+        extract_frame(root / video_dir / f"{view}.mp4", frame_id, rgb_path)
+        rgbs[view] = load_rgb(rgb_path)
+    return rgbs
 
 
 def composite_mask_outline(image: Image.Image, mask: Image.Image, threshold: int) -> Image.Image:

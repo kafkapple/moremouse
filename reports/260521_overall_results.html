@@ -200,17 +200,6 @@
     <a href="file:///Users/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521/figures/tiny_mask_predictions.mp4">tiny_mask_predictions.mp4</a>
   </p>
 
-  <h3>MAMMAL Mesh Preview</h3>
-  <p>
-    아래 orthographic preview는 현재 authoritative 품질 판단에서 제외한다.
-    XY/XZ/YZ 축으로 자유 투영한 wire preview라 실제 camera, perspective, silhouette 기준과 맞지 않고
-    scale/pose가 나빠 보이는 misleading visualization이다. 이 그림은 topology/파일 로딩 smoke 이상의 의미가 없다.
-  </p>
-  <figure>
-    <img src="file:///Users/joon/results/MoReMouse/figures/mammal_mesh_preview_260521/mammal_mesh_preview_grid.png" alt="MAMMAL mesh preview grid">
-    <figcaption>Deprecated diagnostic: orthographic free-axis preview. Mesh 품질 판단에는 사용하지 않는다.</figcaption>
-  </figure>
-
   <h3>Camera Projection Audit</h3>
   <p>
     MAMMAL <code>new_cam.pkl</code>의 convention은 <code>x_cam = R @ x_world + T</code>,
@@ -228,6 +217,8 @@
     더 좋은 MAMMAL mesh 후보를 찾기 위해 최근 단일-frame fit, multi-hypothesis fit, residual deformation,
     production_3600_canon/slerp를 같은 frame/view/mask 기준 projected silhouette IoU로 비교했다.
     이 비교는 true renderer는 아니지만 동일한 camera projection과 mask를 쓰므로 후보 간 상대 비교에는 유용하다.
+    아래 패널은 후보별로 RGB, GT mask, mesh silhouette, error overlay를 분리해 보여준다.
+    error overlay 색상은 green=mask/mesh overlap, red=mesh-only false positive, blue=mask-only false negative다.
   </p>
   <div class="grid">
     <div class="metric"><strong>0.654 → 0.796</strong><span>frame 1030: production → accurate_3000 / multi_hyp_default</span></div>
@@ -235,16 +226,16 @@
     <div class="metric"><strong>0.820</strong><span>frame 10080: production_3600_canon remains best</span></div>
   </div>
   <figure>
-    <img src="file:///Users/joon/results/MoReMouse/figures/mesh_candidate_comparison_260521/frame_001030_candidate_grid.png" alt="mesh candidate comparison frame 1030">
-    <figcaption>frame 1030 candidate comparison. Green is target mask, red is candidate mesh-only error, overlap appears muted green.</figcaption>
+    <img src="file:///Users/joon/results/MoReMouse/figures/mesh_candidate_comparison_260521/frame_001030_candidate_panels.png" alt="mesh candidate panel comparison frame 1030">
+    <figcaption>frame 1030 candidate panels. 각 row는 하나의 mesh 후보이며 view는 후보 간 IoU 차이가 가장 큰 view를 자동 선택했다.</figcaption>
   </figure>
   <figure>
-    <img src="file:///Users/joon/results/MoReMouse/figures/mesh_candidate_comparison_260521/frame_001450_candidate_grid.png" alt="mesh candidate comparison frame 1450">
-    <figcaption>frame 1450 candidate comparison. Recent accurate_3000 / multi_hyp_default is visibly and numerically better than production.</figcaption>
+    <img src="file:///Users/joon/results/MoReMouse/figures/mesh_candidate_comparison_260521/frame_001450_candidate_panels.png" alt="mesh candidate panel comparison frame 1450">
+    <figcaption>frame 1450 candidate panels. Recent accurate_3000 / multi_hyp_default가 production보다 false negative/positive가 적다.</figcaption>
   </figure>
   <figure>
-    <img src="file:///Users/joon/results/MoReMouse/figures/mesh_candidate_comparison_260521/frame_010080_candidate_grid.png" alt="mesh candidate comparison frame 10080">
-    <figcaption>frame 10080 candidate comparison. Production_3600_canon is strongest among checked rearing candidates.</figcaption>
+    <img src="file:///Users/joon/results/MoReMouse/figures/mesh_candidate_comparison_260521/frame_010080_candidate_panels.png" alt="mesh candidate panel comparison frame 10080">
+    <figcaption>frame 10080 candidate panels. 이 대표 frame에서는 production_3600_canon이 checked rearing candidates 중 가장 강하다.</figcaption>
   </figure>
   <p>
     Report:
