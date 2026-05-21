@@ -50,6 +50,15 @@ Frame 6000, view 0:
 - projected mesh bbox under `R @ X + T`: `(319.9, 557.3, 628.7, 948.7)`
 - all tested incorrect alternatives (`R.T @ X + T`, `R @ (X-T)`, `R.T @ (X-T)`) fail by depth, image bounds, or bbox mismatch.
 
+Full camera projection audit output:
+
+- remote: `/home/joon/results/MoReMouse/figures/camera_projection_audit_260521`
+- local mirror: `/Users/joon/results/MoReMouse/figures/camera_projection_audit_260521`
+- frames: `[0, 2000, 6000, 12000, 17980]`
+- views: `[0, 1, 2, 3, 4, 5]`
+- mean projected mesh bbox IoU against thresholded masks: `0.9175278868427719`
+- projected vertex inside-image ratio: `1.0` for all 30 frame-view pairs
+
 ## Mesh Interpretation
 
 The earlier `mammal_mesh_preview_260521` orthographic preview is useful for topology and gross shape, but it is not a camera-aligned quality test. It ignores real camera intrinsics/extrinsics and can make a valid fitted mesh look bad from arbitrary axes. The next diagnostic is therefore camera-projected mesh overlay against RGB/mask, not free orthographic preview.

@@ -36,8 +36,8 @@ Tiny mask baseline:
 - torch: `2.7.1+cu128`
 - frames: `[0, 20, 40, 60, 80, 100]`
 - views: `[0, 1, 2, 3, 4, 5]`
-- initial loss: `0.6196621159712473`
-- final loss: `0.20300880322853723`
+- initial loss after compressed-mask threshold fix: `0.6601287225882212`
+- final loss after compressed-mask threshold fix: `0.15274085849523544`
 - grid: `figures/tiny_mask_predictions.png`
 - video: `figures/tiny_mask_predictions.mp4`
 
