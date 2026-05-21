@@ -114,10 +114,14 @@ def label_font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 
 def save_detail_row(panels: list[Image.Image], cell_w: int, cell_h: int, output_path: Path) -> None:
-    """Save one candidate detail row as a separate file."""
-    output = Image.new("RGB", (cell_w * len(panels), cell_h), (18, 18, 18))
+    """Save one candidate detail image as a readable 3x2 grid."""
+    columns = 3
+    rows = 2
+    output = Image.new("RGB", (cell_w * columns, cell_h * rows), (18, 18, 18))
     for col_index, panel in enumerate(panels):
-        output.paste(panel.resize((cell_w, cell_h)), (col_index * cell_w, 0))
+        x_offset = (col_index % columns) * cell_w
+        y_offset = (col_index // columns) * cell_h
+        output.paste(panel.resize((cell_w, cell_h)), (x_offset, y_offset))
     output.save(output_path)
 
 
