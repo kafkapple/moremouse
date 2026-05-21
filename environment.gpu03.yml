@@ -1,7 +1,5 @@
 name: moremouse
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
 dependencies:
   - python=3.11
@@ -13,9 +11,9 @@ dependencies:
   - pytest>=8.2
   - loguru>=0.7
   - pillow>=10.3
-  - pytorch>=2.3
-  - torchvision>=0.18
-  - pytorch-cuda=12.1
   - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch==2.7.1+cu128
+      - torchvision==0.22.1+cu128
       - jaxtyping>=0.2.29
       - beartype>=0.18.5
