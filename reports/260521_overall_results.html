@@ -152,7 +152,7 @@
     <div class="metric"><strong>900</strong><span>MAMMAL fitted keyframe assets</span></div>
     <div class="metric"><strong>877 + 23</strong><span>production keyframes + accurate refit overrides</span></div>
     <div class="metric"><strong>14,522 / 28,800</strong><span>mesh vertices / faces per preview frame</span></div>
-    <div class="metric"><strong>0.6601 → 0.1527</strong><span>tiny RGB-to-mask baseline loss after mask threshold fix</span></div>
+    <div class="metric"><strong>2.1659 → 0.8022</strong><span>foreground-weighted tiny mask smoke loss</span></div>
     <div class="metric"><strong>18 passed</strong><span>local and gpu03 unit tests</span></div>
     <div class="metric"><strong>PASS</strong><span>coding principles checker</span></div>
   </div>
@@ -184,8 +184,9 @@
   <h3>Tiny Mask Baseline</h3>
   <p>
     GPU 학습 루프 검증을 위해 작은 RGB-to-mask overfit baseline을 실행했다.
-    loss가 <code>0.660129</code>에서 <code>0.152741</code>로 감소해 데이터 로딩, CUDA forward/backward,
-    결과 저장이 정상임을 확인했다.
+    foreground-weighted BCE + Dice 기준 loss가 <code>2.165930</code>에서 <code>0.802167</code>로 감소해
+    데이터 로딩, CUDA forward/backward, 결과 저장이 정상임을 확인했다. 단 이 baseline은 배경 케이블/벽을
+    과검출하므로 방법론 결과가 아니라 smoke test로만 취급한다.
   </p>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521/figures/tiny_mask_predictions.png" alt="tiny mask prediction grid">
@@ -209,13 +210,13 @@
   <h3>Camera Projection Audit</h3>
   <p>
     MAMMAL <code>new_cam.pkl</code>의 convention은 <code>x_cam = R @ x_world + T</code>,
-    <code>pixel = K @ x_cam</code>로 확인했다. 5 frames × 6 views에서 projected mesh bbox와
-    thresholded mask bbox의 평균 IoU는 <code>0.9175</code>였고, 모든 projected vertices의 image-inside ratio는
-    <code>1.0</code>이었다. 따라서 orthographic free-view mesh preview만으로 mesh 품질을 판단하면 안 된다.
+    <code>pixel = K @ x_cam</code>로 확인했다. 5 frames × 6 views에서 bbox IoU는 <code>0.9175</code>였지만,
+    더 엄격한 projected mesh silhouette IoU는 <code>0.8158</code>였다. 이 값은 카메라 convention이 맞더라도
+    surface 품질은 완벽하지 않다는 쪽으로 해석해야 한다.
   </p>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/figures/camera_projection_audit_260521/overlays/projection_frame_006000.png" alt="camera projection audit frame 6000">
-    <figcaption>frame 6000 projection audit. Cyan mask overlay + red projected mesh edges.</figcaption>
+    <figcaption>frame 6000 projection audit. Cyan mask + red/yellow projected full mesh silhouette/edges.</figcaption>
   </figure>
 
   <h2>환경 결론</h2>
@@ -235,16 +236,17 @@
   <h2>최종 판단</h2>
   <p>
     현재까지의 결과는 “실험 준비 완료”가 아니라, 실제 데이터와 GPU를 사용한 Stage A 검증 완료다.
-    데이터 alignment, MAMMAL fitting asset 선택, camera projection convention, visualization, CUDA 학습 루프가 모두 통과했으므로
-    다음 단계에서는 fitted mesh와 multi-view observation을 하나의 training sample로 묶는
-    geometry-aware dataset을 구현하고, MoReMouse식 dense 3D representation objective로 확장하면 된다.
+    데이터 alignment, MAMMAL fitting asset 선택, camera projection convention, visualization, CUDA 학습 루프는
+    1차 검증됐다. 다만 tiny mask baseline은 방법론 결과가 아니고, mesh는 true renderer 기반 silhouette/depth audit을
+    추가로 통과해야 한다. 그 뒤 fitted mesh와 multi-view observation을 하나의 training sample로 묶는
+    geometry-aware dataset으로 확장한다.
   </p>
 
   <h2>다음 작업</h2>
   <ul>
     <li>900개 fitted keyframe manifest 기반 geometry-aware dataset 구현</li>
     <li>OBJ vertices/faces, fitting params, RGB/mask/keypoint observation 통합</li>
-    <li>mesh projection 또는 mesh-overlay diagnostic grid 추가</li>
+    <li>true mesh renderer 기반 silhouette/depth audit 추가</li>
     <li>tiny geometry-aware overfit 후 dense 3D objective 학습으로 확장</li>
   </ul>
 </main>

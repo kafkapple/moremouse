@@ -57,8 +57,28 @@ Full camera projection audit output:
 - frames: `[0, 2000, 6000, 12000, 17980]`
 - views: `[0, 1, 2, 3, 4, 5]`
 - mean projected mesh bbox IoU against thresholded masks: `0.9175278868427719`
+- mean projected mesh silhouette IoU against thresholded masks: `0.8158392106143781`
 - projected vertex inside-image ratio: `1.0` for all 30 frame-view pairs
 
 ## Mesh Interpretation
 
-The earlier `mammal_mesh_preview_260521` orthographic preview is useful for topology and gross shape, but it is not a camera-aligned quality test. It ignores real camera intrinsics/extrinsics and can make a valid fitted mesh look bad from arbitrary axes. The next diagnostic is therefore camera-projected mesh overlay against RGB/mask, not free orthographic preview.
+The earlier `mammal_mesh_preview_260521` orthographic preview is useful for topology and gross shape, but it is not a camera-aligned quality test. It ignores real camera intrinsics/extrinsics and can make a valid fitted mesh look bad from arbitrary axes.
+
+The first camera projection audit was also too weak because it drew only `faces[:3500]` and reported bbox IoU. The corrected audit draws all faces and reports projected 2D triangle-union silhouette IoU. This is still not a physically exact mesh render because it ignores depth ordering/occlusion, but it is a much stronger preflight than bbox IoU.
+
+Current interpretation:
+
+- camera convention is likely correct
+- bbox alignment is high
+- surface/silhouette agreement is moderate to good, not perfect
+- full MoReMouse training should not start until a true rendered silhouette/depth audit is added
+
+## Current Mesh Usage
+
+The MAMMAL mesh data is not yet used for MoReMouse training. It is currently used only in:
+
+- manifest construction: `scripts/build_mammal_asset_manifest.py`
+- OBJ loading tests and mesh preview: `scripts/render_mammal_mesh_previews.py`
+- camera projection audit: `scripts/audit_camera_projection.py`
+
+The tiny mask baseline uses only RGB and mask frames. It does not use OBJ meshes, fitting params, or cameras.

@@ -36,8 +36,10 @@ Tiny mask baseline:
 - torch: `2.7.1+cu128`
 - frames: `[0, 20, 40, 60, 80, 100]`
 - views: `[0, 1, 2, 3, 4, 5]`
-- initial loss after compressed-mask threshold fix: `0.6601287225882212`
-- final loss after compressed-mask threshold fix: `0.15274085849523544`
+- initial loss after foreground-weighted BCE + Dice fix: `2.165929913520813`
+- final loss after foreground-weighted BCE + Dice fix: `0.8021674156188965`
+- target foreground ratio: `0.0590023472905159`
+- predicted foreground ratio at threshold 0.5: `0.1255086213350296`
 - grid: `figures/tiny_mask_predictions.png`
 - video: `figures/tiny_mask_predictions.mp4`
 
@@ -64,6 +66,8 @@ MAMMAL mesh preview:
 ## Notes
 
 This is not the final MoReMouse method. It is Gate A validation that the selected markerless mouse data, masks, keypoints, result paths, ffmpeg extraction, and CUDA training loop are coherent enough to proceed.
+
+The tiny RGB-to-mask baseline is intentionally a smoke test, not a usable segmentation model. After class balancing, predictions are visible but over-activate background cables/walls. Do not use this model output as supervision or as a reported method result.
 
 ## Next Gate
 
