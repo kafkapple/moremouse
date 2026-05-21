@@ -53,7 +53,7 @@ dataset:
       baseline_iou: /home/joon/dev/MAMMAL_mouse/results/comparison/baseline_iou/baseline_iou.json
       refit_iou: /home/joon/dev/MAMMAL_mouse/results/comparison/refit_23/iou_report.json
   mesh_candidate_audit:
-    panel_cell_size: [260, 220]
+    panel_cell_size: [320, 240]
     frames:
       - frame_id: 1030
         candidates:
