@@ -37,22 +37,45 @@ def encode_video(frame_glob: str, output_path: Path, fps: int = 6) -> Path:
     if fps <= 0:
         raise ValueError("fps must be positive")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    command = [
-        "ffmpeg",
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-framerate",
-        str(fps),
-        "-pattern_type",
-        "glob",
-        "-i",
-        frame_glob,
-        "-pix_fmt",
-        "yuv420p",
-        str(output_path),
-    ]
+    if "*" in frame_glob:
+        command = [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-framerate",
+            str(fps),
+            "-pattern_type",
+            "glob",
+            "-i",
+            frame_glob,
+            "-pix_fmt",
+            "yuv420p",
+            str(output_path),
+        ]
+    else:
+        input_path = Path(frame_glob)
+        if not input_path.exists():
+            raise FileNotFoundError(f"Video input image does not exist: {input_path}")
+        command = [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-loop",
+            "1",
+            "-framerate",
+            str(fps),
+            "-i",
+            str(input_path),
+            "-t",
+            "2",
+            "-pix_fmt",
+            "yuv420p",
+            str(output_path),
+        ]
     subprocess.run(command, check=True)
     if not output_path.exists():
         raise RuntimeError(f"ffmpeg did not write video: {output_path}")
