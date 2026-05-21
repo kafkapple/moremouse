@@ -164,3 +164,15 @@ dataset:
       - name: residual_basis_search
         setting: residual basis search best candidate
         obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/residual_basis_search_260521
+  feasibility_ablation:
+    output_dir: /home/joon/results/MoReMouse/experiments/mesh_prior_ablation_260521
+    mesh_source_report: /home/joon/results/MoReMouse/figures/mesh_source_search_260521/report.json
+    frames: [0, 720, 1030, 1450, 2760, 10080]
+    train_views: [0, 1, 2, 3]
+    eval_views: [4, 5]
+    samples_per_view: 4096
+    eval_samples_per_view: 8192
+    epochs: 160
+    learning_rate: 0.001
+    hidden_dim: 64
+    threshold: 0.5
