@@ -8,6 +8,13 @@ from PIL import Image, ImageDraw, ImageFont
 from moremouse.geometry.obj import load_obj_mesh
 from moremouse.geometry.projection import project_vertices, rasterize_projected_silhouette
 
+TITLE_BAR_HEIGHT = 52
+TITLE_FONT_SIZE = 24
+DETAIL_HEADER_HEIGHT = 64
+DETAIL_HEADER_FONT_SIZE = 28
+DETAIL_GRID_COLUMNS = 3
+DETAIL_GRID_ROWS = 2
+
 
 def save_candidate_panels(
     frame_rows: list[tuple[dict, list[Image.Image]]],
@@ -99,30 +106,38 @@ def title(image: Image.Image, text: str) -> Image.Image:
     """Add a compact title bar to a panel."""
     output = image.copy()
     draw = ImageDraw.Draw(output)
-    bar_h = 44
-    draw.rectangle((0, 0, output.width, bar_h), fill=(0, 0, 0))
-    draw.text((10, 7), text, fill=(255, 255, 255), font=label_font())
+    draw.rectangle((0, 0, output.width, TITLE_BAR_HEIGHT), fill=(0, 0, 0))
+    draw.text((10, 10), text, fill=(255, 255, 255), font=label_font(TITLE_FONT_SIZE))
     return output
 
 
-def label_font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def label_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """Load a readable font with a portable fallback."""
     try:
-        return ImageFont.truetype("DejaVuSans.ttf", 18)
+        return ImageFont.truetype("DejaVuSans.ttf", size)
     except OSError:
         return ImageFont.load_default()
 
 
 def save_detail_row(panels: list[Image.Image], cell_w: int, cell_h: int, output_path: Path) -> None:
     """Save one candidate detail image as a readable 3x2 grid."""
-    columns = 3
-    rows = 2
-    output = Image.new("RGB", (cell_w * columns, cell_h * rows), (18, 18, 18))
+    width = cell_w * DETAIL_GRID_COLUMNS
+    height = cell_h * DETAIL_GRID_ROWS + DETAIL_HEADER_HEIGHT
+    output = Image.new("RGB", (width, height), (18, 18, 18))
+    draw_detail_header(output, output_path.stem)
     for col_index, panel in enumerate(panels):
-        x_offset = (col_index % columns) * cell_w
-        y_offset = (col_index // columns) * cell_h
+        x_offset = (col_index % DETAIL_GRID_COLUMNS) * cell_w
+        y_offset = (col_index // DETAIL_GRID_COLUMNS) * cell_h + DETAIL_HEADER_HEIGHT
         output.paste(panel.resize((cell_w, cell_h)), (x_offset, y_offset))
     output.save(output_path)
+
+
+def draw_detail_header(image: Image.Image, candidate: str) -> None:
+    """Draw a large candidate label above a detail grid."""
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, image.width, DETAIL_HEADER_HEIGHT), fill=(0, 0, 0))
+    label = f"candidate: {candidate} | columns: RGB, GT, mesh, overlap, mesh-only FP, GT-only FN"
+    draw.text((14, 14), label, fill=(255, 255, 255), font=label_font(DETAIL_HEADER_FONT_SIZE))
 
 
 def sanitize_filename(name: str) -> str:
