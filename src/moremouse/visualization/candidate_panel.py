@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from moremouse.geometry.obj import load_obj_mesh
 from moremouse.geometry.projection import project_vertices, rasterize_projected_silhouette
@@ -99,9 +99,18 @@ def title(image: Image.Image, text: str) -> Image.Image:
     """Add a compact title bar to a panel."""
     output = image.copy()
     draw = ImageDraw.Draw(output)
-    draw.rectangle((0, 0, output.width, 28), fill=(0, 0, 0))
-    draw.text((6, 7), text, fill=(255, 255, 255))
+    bar_h = 44
+    draw.rectangle((0, 0, output.width, bar_h), fill=(0, 0, 0))
+    draw.text((10, 7), text, fill=(255, 255, 255), font=label_font())
     return output
+
+
+def label_font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Load a readable font with a portable fallback."""
+    try:
+        return ImageFont.truetype("DejaVuSans.ttf", 18)
+    except OSError:
+        return ImageFont.load_default()
 
 
 def save_detail_row(panels: list[Image.Image], cell_w: int, cell_h: int, output_path: Path) -> None:
