@@ -40,37 +40,37 @@ def main() -> None:
         for view in views:
             rgb_path = frame_dir / f"rgb_v{view}_f{frame_id:06d}.png"
             mask_path = frame_dir / f"mask_v{view}_f{frame_id:06d}.png"
-            extract_frame(root / cfg.source.rgb_videos / f"{view}.mp4", frame_id, rgb_path)
-            extract_frame(root / cfg.source.segmentation_masks / f"{view}.mp4", frame_id, mask_path)
+            rgb_video = root / cfg.source.rgb_videos / f"{view}.mp4"
+            mask_video = root / cfg.source.segmentation_masks / f"{view}.mp4"
+            extract_frame(rgb_video, frame_id, rgb_path)
+            extract_frame(mask_video, frame_id, mask_path)
             uv, inside_ratio = project_vertices(mesh.vertices, cameras[view])
             mask = Image.open(mask_path).convert("L")
             mask_bbox = mask_bbox_xyxy(mask, threshold)
             mesh_bbox = uv_bbox_xyxy(uv, mask.size)
             bbox_iou = xyxy_iou(mask_bbox, mesh_bbox)
+            mesh_silhouette = rasterize_projected_silhouette(uv, mesh.faces, mask.size)
+            target_silhouette = np.asarray(mask) > threshold
+            silhouette_iou = binary_iou(target_silhouette, mesh_silhouette)
             image = overlay_mask(load_rgb(rgb_path), mask, threshold=threshold)
-            image = draw_projection(image, uv, mesh.faces)
-            cells.append(label(image.resize((320, 285)), frame_id, view, bbox_iou))
+            image = overlay_mesh_silhouette(image, mesh_silhouette)
+            image = draw_projection_outline(image, uv, mesh.faces)
+            cells.append(label(image.resize((320, 285)), frame_id, view, silhouette_iou))
             rows.append(
-                {
-                    "frame_id": frame_id,
-                    "view": view,
-                    "source": assets[frame_id]["source"],
-                    "inside_ratio": inside_ratio,
-                    "bbox_iou": bbox_iou,
-                    "mask_bbox": mask_bbox,
-                    "mesh_bbox": mesh_bbox,
-                }
+                {"frame_id": frame_id, "view": view, "source": assets[frame_id]["source"],
+                 "inside_ratio": inside_ratio, "bbox_iou": bbox_iou,
+                 "silhouette_iou": silhouette_iou, "mask_bbox": mask_bbox, "mesh_bbox": mesh_bbox}
             )
         save_grid(cells, overlay_dir / f"projection_frame_{frame_id:06d}.png")
     report = {
         "camera_convention": "OpenCV world-to-camera: x_cam = R @ x_world + T; pixel = K @ x_cam",
         "mask_threshold": threshold,
         "mean_bbox_iou": float(np.mean([row["bbox_iou"] for row in rows])),
+        "mean_silhouette_iou": float(np.mean([row["silhouette_iou"] for row in rows])),
         "rows": rows,
     }
     (output_root / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Wrote projection audit to {}", output_root / "report.json")
-
 
 def project_vertices(vertices: np.ndarray, camera: dict) -> tuple[np.ndarray, float]:
     """Project world vertices using MAMMAL camera R/T/K."""
@@ -93,7 +93,6 @@ def project_vertices(vertices: np.ndarray, camera: dict) -> tuple[np.ndarray, fl
     )
     return projected, float(inside.mean())
 
-
 def mask_bbox_xyxy(mask: Image.Image, threshold: int) -> list[float]:
     """Compute foreground mask bbox."""
     array = np.asarray(mask)
@@ -101,7 +100,6 @@ def mask_bbox_xyxy(mask: Image.Image, threshold: int) -> list[float]:
     if len(xs) == 0:
         raise ValueError("Mask has no foreground")
     return [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
-
 
 def uv_bbox_xyxy(uv: np.ndarray, size: tuple[int, int]) -> list[float]:
     """Compute projected vertex bbox inside image bounds."""
@@ -111,8 +109,10 @@ def uv_bbox_xyxy(uv: np.ndarray, size: tuple[int, int]) -> list[float]:
     if not inside.any():
         raise ValueError("Projection has no in-frame vertices")
     points = uv[inside]
-    return [float(points[:, 0].min()), float(points[:, 1].min()), float(points[:, 0].max()), float(points[:, 1].max())]
-
+    return [
+        float(points[:, 0].min()), float(points[:, 1].min()),
+        float(points[:, 0].max()), float(points[:, 1].max()),
+    ]
 
 def xyxy_iou(first: list[float], second: list[float]) -> float:
     """Compute bbox IoU for xyxy boxes."""
@@ -129,22 +129,56 @@ def xyxy_iou(first: list[float], second: list[float]) -> float:
     return float(intersection / union)
 
 
-def draw_projection(image: Image.Image, uv: np.ndarray, faces: np.ndarray) -> Image.Image:
-    """Draw projected mesh edges on an image."""
+def rasterize_projected_silhouette(
+    uv: np.ndarray,
+    faces: np.ndarray,
+    size: tuple[int, int],
+) -> np.ndarray:
+    """Rasterize projected mesh triangles into a binary 2D silhouette."""
+    canvas = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(canvas)
+    for face in faces:
+        vertices = [int(index) for index in face[:3]]
+        if not np.isfinite(uv[vertices]).all():
+            continue
+        points = [tuple(uv[index]) for index in vertices]
+        draw.polygon(points, fill=int(np.iinfo(np.uint8).max))
+    return np.asarray(canvas) > 0
+
+
+def binary_iou(target: np.ndarray, prediction: np.ndarray) -> float:
+    """Compute IoU between two binary masks."""
+    intersection = np.logical_and(target, prediction).sum()
+    union = np.logical_or(target, prediction).sum()
+    if union == 0:
+        raise ValueError("Degenerate binary IoU union")
+    return float(intersection / union)
+
+
+def overlay_mesh_silhouette(image: Image.Image, silhouette: np.ndarray) -> Image.Image:
+    """Overlay projected mesh silhouette in red."""
+    mesh_mask = Image.fromarray((silhouette.astype(np.uint8) * 180), "L")
+    red = Image.new("RGB", image.size, (255, 60, 40))
+    blended = Image.blend(image.convert("RGB"), red, 0.35)
+    return Image.composite(blended, image.convert("RGB"), mesh_mask)
+
+
+def draw_projection_outline(image: Image.Image, uv: np.ndarray, faces: np.ndarray) -> Image.Image:
+    """Draw all projected mesh edges on an image."""
     output = image.copy()
     draw = ImageDraw.Draw(output)
-    for face in faces[:3500]:
-        valid = [int(index) for index in face if index >= 0 and np.isfinite(uv[int(index)]).all()]
+    for face in faces:
+        valid = [int(index) for index in face[:3] if np.isfinite(uv[int(index)]).all()]
         for start, end in zip(valid, valid[1:] + valid[:1]):
-            draw.line((tuple(uv[start]), tuple(uv[end])), fill=(255, 80, 60), width=1)
+            draw.line((tuple(uv[start]), tuple(uv[end])), fill=(255, 230, 40), width=1)
     return output
 
 
-def label(image: Image.Image, frame_id: int, view: int, bbox_iou: float) -> Image.Image:
+def label(image: Image.Image, frame_id: int, view: int, silhouette_iou: float) -> Image.Image:
     """Add frame/view metadata to one audit cell."""
     output = image.copy()
     draw = ImageDraw.Draw(output)
-    text = f"f{frame_id:06d} v{view} bboxIoU={bbox_iou:.2f}"
+    text = f"f{frame_id:06d} v{view} silIoU={silhouette_iou:.2f}"
     draw.rectangle((0, 0, output.width, 24), fill=(0, 0, 0))
     draw.text((6, 5), text, fill=(255, 255, 255))
     return output

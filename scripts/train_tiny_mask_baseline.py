@@ -28,27 +28,26 @@ def main() -> None:
 
     frame_ids = [0, 20, 40, 60, 80, 100]
     views = [0, 1, 2, 3, 4, 5]
-    inputs, targets = _load_samples(
-        root,
-        frame_ids,
-        views,
-        output_root / "frames",
-        int(cfg.visualization.mask_binary_threshold),
-    )
+    inputs, targets = _load_samples(root, frame_ids, views, output_root / "frames",
+                                   int(cfg.visualization.mask_binary_threshold))
     dataset = TensorDataset(inputs, targets)
     loader = DataLoader(dataset, batch_size=6, shuffle=True)
 
     model = _TinyMaskNet().to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3)
-    loss_fn = nn.BCEWithLogitsLoss()
+    foreground = targets.sum()
+    background = targets.numel() - foreground
+    pos_weight = (background / foreground.clamp_min(1.0)).to(device)
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     losses = []
-    for epoch in range(40):
+    for epoch in range(80):
         epoch_loss = 0.0
         for batch_x, batch_y in loader:
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
             optimizer.zero_grad(set_to_none=True)
-            loss = loss_fn(model(batch_x), batch_y)
+            logits = model(batch_x)
+            loss = loss_fn(logits, batch_y) + dice_loss(logits, batch_y)
             if not torch.isfinite(loss):
                 raise RuntimeError("Non-finite training loss")
             loss.backward()
@@ -70,6 +69,9 @@ def main() -> None:
         "views": views,
         "initial_loss": losses[0],
         "final_loss": losses[-1],
+        "target_foreground_ratio": float(targets.mean().item()),
+        "prediction_mean_probability": float(predictions.mean().item()),
+        "prediction_foreground_ratio_at_0_5": float((predictions > 0.5).float().mean().item()),
         "grid": str(grid_path),
         "video": str(video_path),
     }
@@ -90,18 +92,25 @@ class _TinyMaskNet:
             nn.ReLU(),
             nn.Conv2d(16, 16, 3, padding=1),
             nn.ReLU(),
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.ReLU(),
             nn.Conv2d(16, 1, 1),
             nn.Upsample(size=(128, 128), mode="bilinear", align_corners=False),
         )
 
 
-def _load_samples(
-    root: Path,
-    frame_ids: list[int],
-    views: list[int],
-    frame_dir: Path,
-    mask_threshold: int,
-):
+def dice_loss(logits, targets):
+    """Compute soft Dice loss for foreground-sensitive mask training."""
+    import torch
+
+    probs = torch.sigmoid(logits)
+    numerator = 2.0 * (probs * targets).sum(dim=(1, 2, 3))
+    denominator = probs.sum(dim=(1, 2, 3)) + targets.sum(dim=(1, 2, 3))
+    return 1.0 - ((numerator + 1.0) / (denominator + 1.0)).mean()
+
+
+def _load_samples(root: Path, frame_ids: list[int], views: list[int], frame_dir: Path,
+                  mask_threshold: int):
     import numpy as np
     import torch
 
@@ -116,11 +125,7 @@ def _load_samples(
             rgb = Image.open(rgb_path).convert("RGB").resize((128, 128))
             mask = Image.open(mask_path).convert("L").resize((128, 128))
             images.append(np.asarray(rgb, dtype=np.float32).transpose(2, 0, 1) / 255.0)
-            masks.append(
-                (np.asarray(mask, dtype=np.float32)[None, ...] > mask_threshold).astype(
-                    np.float32
-                )
-            )
+            masks.append((np.asarray(mask, dtype=np.float32)[None, ...] > mask_threshold).astype(np.float32))
     return torch.tensor(np.stack(images)), torch.tensor(np.stack(masks))
 
 
@@ -129,9 +134,10 @@ def _save_prediction_grid(inputs, targets, predictions, output_path: Path) -> No
     limit = min(8, inputs.shape[0])
     for index in range(limit):
         rgb = _tensor_rgb(inputs[index])
-        target = _tensor_mask(targets[index], (40, 220, 120))
-        pred = _tensor_mask(predictions[index], (255, 90, 70))
-        cells.append(_triplet(rgb, target, pred))
+        target = _tensor_binary_mask(targets[index], (40, 220, 120))
+        pred_prob = _tensor_probability(predictions[index])
+        pred_mask = _tensor_binary_mask(predictions[index], (255, 90, 70))
+        cells.append(_quad(rgb, target, pred_prob, pred_mask))
     width = cells[0].width
     height = cells[0].height
     output = Image.new("RGB", (width * 2, height * 4), (20, 20, 20))
@@ -147,16 +153,30 @@ def _tensor_rgb(tensor) -> Image.Image:
     return Image.fromarray(array, "RGB")
 
 
-def _tensor_mask(tensor, color: tuple[int, int, int]) -> Image.Image:
+def _tensor_binary_mask(tensor, color: tuple[int, int, int]) -> Image.Image:
     import numpy as np
 
-    mask = (tensor.squeeze().numpy() > 0.5).astype(np.uint8) * 180
-    return Image.fromarray(mask, "L").convert("RGB").point(lambda value: min(value, color[0]))
+    binary = (tensor.squeeze().numpy() > 0.5).astype(np.float32)
+    color_array = np.asarray(color, dtype=np.float32)[None, None, :]
+    array = (binary[..., None] * color_array).clip(0, 255).astype(np.uint8)
+    return Image.fromarray(array, "RGB")
 
 
-def _triplet(rgb: Image.Image, target: Image.Image, pred: Image.Image) -> Image.Image:
-    output = Image.new("RGB", (rgb.width * 3, rgb.height + 20), (20, 20, 20))
-    for index, (label, image) in enumerate([("rgb", rgb), ("target", target), ("pred", pred)]):
+def _tensor_probability(tensor) -> Image.Image:
+    import numpy as np
+
+    prob = tensor.squeeze().numpy().clip(0.0, 1.0)
+    red = (prob * 255).astype(np.uint8)
+    green = (np.sqrt(prob) * 120).astype(np.uint8)
+    blue = ((1.0 - prob) * 40).astype(np.uint8)
+    return Image.fromarray(np.stack([red, green, blue], axis=-1), "RGB")
+
+
+def _quad(rgb: Image.Image, target: Image.Image, pred_prob: Image.Image,
+          pred_mask: Image.Image) -> Image.Image:
+    output = Image.new("RGB", (rgb.width * 4, rgb.height + 20), (20, 20, 20))
+    panels = [("rgb", rgb), ("target", target), ("pred_prob", pred_prob), ("pred_mask", pred_mask)]
+    for index, (label, image) in enumerate(panels):
         output.paste(image, (index * rgb.width, 20))
         draw = ImageDraw.Draw(output)
         draw.text((index * rgb.width + 4, 4), label, fill=(255, 255, 255))
