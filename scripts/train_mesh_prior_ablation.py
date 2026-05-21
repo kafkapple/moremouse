@@ -14,14 +14,15 @@ from PIL import Image
 from moremouse.data.video_frames import extract_frame
 from moremouse.geometry.obj import load_obj_mesh
 from moremouse.geometry.projection import binary_iou, project_vertices, rasterize_projected_silhouette
-from moremouse.training.reproducibility import set_seed
+from moremouse.training.reproducibility import seed_everything
 
 
 def main() -> None:
     """Train two small MLPs and compare held-out-view mask IoU."""
     cfg = OmegaConf.load("configs/datasets/markerless_mammal.yaml").dataset
     abl = cfg.feasibility_ablation
-    set_seed(int(OmegaConf.load("configs/default.yaml").seed))
+    seed_everything(int(OmegaConf.load("configs/default.yaml").seed))
+    torch.manual_seed(int(OmegaConf.load("configs/default.yaml").seed))
     output_dir = Path(abl.output_dir)
     if output_dir.exists():
         shutil.rmtree(output_dir)
