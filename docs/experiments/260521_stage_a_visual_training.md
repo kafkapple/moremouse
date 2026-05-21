@@ -41,6 +41,15 @@ Tiny mask baseline:
 - grid: `figures/tiny_mask_predictions.png`
 - video: `figures/tiny_mask_predictions.mp4`
 
+MAMMAL mesh preview:
+
+- remote: `/home/joon/results/MoReMouse/figures/mammal_mesh_preview_260521`
+- local mirror: `/Users/joon/results/MoReMouse/figures/mammal_mesh_preview_260521`
+- frames: `[0, 2000, 6000, 12000, 17980]`
+- per-frame mesh size: 14,522 vertices and 28,800 faces
+- frame 6000 correctly resolves to the `refit_accurate_23` override asset
+- grid: `mammal_mesh_preview_grid.png`
+
 ## Verification
 
 - local tests: `16 passed in 0.30s`
@@ -48,6 +57,9 @@ Tiny mask baseline:
 - gpu03 tests after pull: `16 passed in 0.21s`
 - sanity script completed and wrote `report.json`
 - tiny baseline script completed and wrote `report.json`
+- after mesh diagnostics were added, local tests: `18 passed in 0.28s`
+- after mesh diagnostics were pulled on gpu03, tests: `18 passed in 0.22s`
+- mesh preview script completed and wrote `report.json`
 
 ## Notes
 
@@ -60,5 +72,4 @@ Implement the first geometry-aware training dataset:
 - sample MAMMAL fitted keyframes from the 900-frame asset manifest
 - load OBJ vertices/faces and fitting parameter paths
 - attach RGB/mask/keypoint observations by view and frame
-- produce mesh-overlay or projected diagnostic grids
 - then add the first dense-view/3D representation training objective
