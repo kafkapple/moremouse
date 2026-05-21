@@ -10,8 +10,8 @@ from moremouse.geometry.projection import project_vertices, rasterize_projected_
 
 TITLE_BAR_HEIGHT = 52
 TITLE_FONT_SIZE = 24
-DETAIL_HEADER_HEIGHT = 64
-DETAIL_HEADER_FONT_SIZE = 28
+DETAIL_HEADER_HEIGHT = 88
+DETAIL_HEADER_FONT_SIZE = 26
 DETAIL_GRID_COLUMNS = 3
 DETAIL_GRID_ROWS = 2
 
@@ -136,8 +136,18 @@ def draw_detail_header(image: Image.Image, candidate: str) -> None:
     """Draw a large candidate label above a detail grid."""
     draw = ImageDraw.Draw(image)
     draw.rectangle((0, 0, image.width, DETAIL_HEADER_HEIGHT), fill=(0, 0, 0))
-    label = f"candidate: {candidate} | panels: RGB GT mesh overlap FP FN"
-    draw.text((14, 14), label, fill=(255, 255, 255), font=label_font(DETAIL_HEADER_FONT_SIZE))
+    draw.text(
+        (14, 10),
+        f"candidate: {candidate}",
+        fill=(255, 255, 255),
+        font=label_font(DETAIL_HEADER_FONT_SIZE),
+    )
+    draw.text(
+        (14, 48),
+        "panels: RGB | GT mask | mesh mask | overlap | mesh-only FP | GT-only FN",
+        fill=(255, 255, 255),
+        font=label_font(TITLE_FONT_SIZE),
+    )
 
 
 def sanitize_filename(name: str) -> str:
