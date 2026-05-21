@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MoReMouse Stage A 결과 결론</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #171717;
+      --muted: #5f6368;
+      --line: #d9dde3;
+      --panel: #f7f8fa;
+      --accent: #1769aa;
+      --ok: #18794e;
+      --warn: #9a6700;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+      line-height: 1.55;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 28px 64px;
+    }
+    h1, h2, h3 {
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+    }
+    h2 {
+      margin: 36px 0 12px;
+      font-size: 22px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 17px;
+    }
+    p {
+      margin: 8px 0;
+    }
+    a {
+      color: var(--accent);
+    }
+    .meta {
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    .summary {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin: 24px 0;
+    }
+    .status {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 650;
+      font-size: 13px;
+      color: #ffffff;
+      background: var(--ok);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin: 14px 0;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #ffffff;
+    }
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      margin-bottom: 2px;
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    figure {
+      margin: 16px 0 28px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #111111;
+    }
+    figcaption {
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      border-top: 1px solid var(--line);
+    }
+    code {
+      background: #f1f3f5;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    ul {
+      padding-left: 22px;
+    }
+    li {
+      margin: 5px 0;
+    }
+    .warning {
+      border-left: 4px solid var(--warn);
+      background: #fff8e1;
+      padding: 12px 14px;
+      margin: 16px 0;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>MoReMouse Stage A 결과 결론</h1>
+  <p class="meta">작성일: 2026-05-21 · repo: <code>/Users/joon/dev/MoReMouse</code> · commit: <code>28dcbfa</code></p>
+
+  <section class="summary">
+    <p><span class="status">결론: Stage A 통과</span></p>
+    <p>
+      markerless mouse + MAMMAL 전처리 데이터를 기준으로 RGB, segmentation mask, 2D keypoint,
+      fitted mesh, CUDA 학습 루프, 결과 저장 위치가 모두 정상 동작함을 확인했다.
+      아직 full MoReMouse dense 3D 학습 결과는 아니며, 다음 단계의 geometry-aware 학습을 시작하기 위한
+      데이터/환경/시각화 검증 게이트를 통과한 상태다.
+    </p>
+  </section>
+
+  <h2>핵심 수치</h2>
+  <div class="grid">
+    <div class="metric"><strong>900</strong><span>MAMMAL fitted keyframe assets</span></div>
+    <div class="metric"><strong>877 + 23</strong><span>production keyframes + accurate refit overrides</span></div>
+    <div class="metric"><strong>14,522 / 28,800</strong><span>mesh vertices / faces per preview frame</span></div>
+    <div class="metric"><strong>0.6197 → 0.2030</strong><span>tiny RGB-to-mask baseline loss</span></div>
+    <div class="metric"><strong>18 passed</strong><span>local and gpu03 unit tests</span></div>
+    <div class="metric"><strong>PASS</strong><span>coding principles checker</span></div>
+  </div>
+
+  <h2>검증된 데이터 경로</h2>
+  <ul>
+    <li>dataset root: <code>/home/joon/dev/MAMMAL_mouse/data/raw/markerless_mouse_1_nerf</code></li>
+    <li>RGB videos: <code>videos_undist/{0..5}.mp4</code></li>
+    <li>segmentation masks: <code>simpleclick_undist/{0..5}.mp4</code></li>
+    <li>2D keypoints: <code>keypoints2d_undist/result_view_{0..5}.pkl</code></li>
+    <li>fitting manifest: <code>/home/joon/results/MoReMouse/datasets/markerless_mouse_1_nerf_mammal_accurate_manifest.json</code></li>
+  </ul>
+
+  <h2>시각화 결과</h2>
+  <h3>RGB + Mask + Keypoint Sanity Grid</h3>
+  <p>
+    5개 대표 frame과 6개 view에 대해 RGB, segmentation mask overlay, 2D keypoint를 합성했다.
+    결과 위치: <code>/Users/joon/results/MoReMouse/figures/sanity_260521</code>
+  </p>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/figures/sanity_260521/grids/grid_002_frame_006000.png" alt="markerless sanity grid frame 6000">
+    <figcaption>frame 6000 sanity grid. RGB/mask/keypoint alignment 검증용.</figcaption>
+  </figure>
+  <p>
+    Video:
+    <a href="file:///Users/joon/results/MoReMouse/figures/sanity_260521/markerless_sanity.mp4">markerless_sanity.mp4</a>
+  </p>
+
+  <h3>Tiny Mask Baseline</h3>
+  <p>
+    GPU 학습 루프 검증을 위해 작은 RGB-to-mask overfit baseline을 실행했다.
+    loss가 <code>0.619662</code>에서 <code>0.203009</code>로 감소해 데이터 로딩, CUDA forward/backward,
+    결과 저장이 정상임을 확인했다.
+  </p>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521/figures/tiny_mask_predictions.png" alt="tiny mask prediction grid">
+    <figcaption>RGB / target mask / predicted mask 비교 grid.</figcaption>
+  </figure>
+  <p>
+    Video:
+    <a href="file:///Users/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521/figures/tiny_mask_predictions.mp4">tiny_mask_predictions.mp4</a>
+  </p>
+
+  <h3>MAMMAL Mesh Preview</h3>
+  <p>
+    manifest에서 대표 fitted OBJ 5개를 로드해 XY/XZ/YZ orthographic preview를 생성했다.
+    frame <code>6000</code>은 accurate refit override asset으로 정상 resolve되었다.
+  </p>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/figures/mammal_mesh_preview_260521/mammal_mesh_preview_grid.png" alt="MAMMAL mesh preview grid">
+    <figcaption>MAMMAL fitted mesh preview grid. 각 frame은 14,522 vertices / 28,800 faces.</figcaption>
+  </figure>
+
+  <h2>환경 결론</h2>
+  <ul>
+    <li>gpu03 env: <code>moremouse</code></li>
+    <li>PyTorch: <code>2.7.1+cu128</code></li>
+    <li>CUDA: <code>12.8</code></li>
+    <li>Blackwell <code>sm_120</code> 지원 확인</li>
+    <li>1024x1024 CUDA matmul smoke 통과</li>
+  </ul>
+  <div class="warning">
+    <strong>주의:</strong> gpu03의 <code>/node_data</code>는 96% 사용 중이므로 현재 결과물은
+    <code>/home/joon/results/MoReMouse</code>를 기준으로 저장하고 로컬
+    <code>/Users/joon/results/MoReMouse</code>로 mirror했다.
+  </div>
+
+  <h2>최종 판단</h2>
+  <p>
+    현재까지의 결과는 “실험 준비 완료”가 아니라, 실제 데이터와 GPU를 사용한 Stage A 검증 완료다.
+    데이터 alignment, MAMMAL fitting asset 선택, visualization, CUDA 학습 루프가 모두 통과했으므로
+    다음 단계에서는 fitted mesh와 multi-view observation을 하나의 training sample로 묶는
+    geometry-aware dataset을 구현하고, MoReMouse식 dense 3D representation objective로 확장하면 된다.
+  </p>
+
+  <h2>다음 작업</h2>
+  <ul>
+    <li>900개 fitted keyframe manifest 기반 geometry-aware dataset 구현</li>
+    <li>OBJ vertices/faces, fitting params, RGB/mask/keypoint observation 통합</li>
+    <li>mesh projection 또는 mesh-overlay diagnostic grid 추가</li>
+    <li>tiny geometry-aware overfit 후 dense 3D objective 학습으로 확장</li>
+  </ul>
+</main>
+</body>
+</html>
