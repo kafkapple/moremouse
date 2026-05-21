@@ -141,9 +141,9 @@
     <p><span class="status">결론: Stage A 통과</span></p>
     <p>
       markerless mouse + MAMMAL 전처리 데이터를 기준으로 RGB, segmentation mask, 2D keypoint,
-      fitted mesh, CUDA 학습 루프, 결과 저장 위치가 모두 정상 동작함을 확인했다.
-      아직 full MoReMouse dense 3D 학습 결과는 아니며, 다음 단계의 geometry-aware 학습을 시작하기 위한
-      데이터/환경/시각화 검증 게이트를 통과한 상태다.
+      fitted mesh, CUDA 학습 루프, 결과 저장 위치를 점검했다. mesh 파일 구조와 카메라 convention은 일관되지만,
+      projected silhouette IoU와 visual overlay 기준으로 surface 품질은 완벽하지 않다.
+      아직 full MoReMouse dense 3D 학습 결과가 아니며, geometry-aware 학습 전 true renderer audit이 남아 있다.
     </p>
   </section>
 
@@ -153,6 +153,7 @@
     <div class="metric"><strong>877 + 23</strong><span>production keyframes + accurate refit overrides</span></div>
     <div class="metric"><strong>14,522 / 28,800</strong><span>mesh vertices / faces per preview frame</span></div>
     <div class="metric"><strong>2.1659 → 0.8022</strong><span>foreground-weighted tiny mask smoke loss</span></div>
+    <div class="metric"><strong>0.8158</strong><span>mean projected mesh silhouette IoU</span></div>
     <div class="metric"><strong>18 passed</strong><span>local and gpu03 unit tests</span></div>
     <div class="metric"><strong>PASS</strong><span>coding principles checker</span></div>
   </div>
@@ -190,7 +191,7 @@
   </p>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521/figures/tiny_mask_predictions.png" alt="tiny mask prediction grid">
-    <figcaption>RGB / target mask / predicted mask 비교 grid.</figcaption>
+    <figcaption>RGB / target mask / pred probability / pred mask. Smoke model은 보이지만 배경 케이블/벽을 과검출한다.</figcaption>
   </figure>
   <p>
     Video:
@@ -219,6 +220,22 @@
     <figcaption>frame 6000 projection audit. Cyan mask + red/yellow projected full mesh silhouette/edges.</figcaption>
   </figure>
 
+  <h3>Mesh Integrity Audit</h3>
+  <p>
+    Manifest와 대표 5개 fitted mesh/params를 검사했다. Manifest는 900 assets이고, 877 primary + 23 override로 구성된다.
+    sampled frames는 모두 <code>14,522</code> vertices, <code>28,800</code> faces, 동일 topology hash
+    <code>2fca1fb8a56c73eb</code>를 가진다. fitting param pkl은
+    <code>thetas, trans, scale, rotation, bone_lengths, chest_deformer</code> key와 shape/finite 검증을 통과했다.
+  </p>
+  <p>
+    다만 일부 sampled params의 axis-angle 값은 ±π를 넘는다. 이는 MAMMAL 기존 분석의 axis-angle canonicalization
+    risk와 일치하므로, interpolation/training에서 raw rotation vector를 직접 쓰기 전에 canonicalization 또는 rotmat/6D 변환이 필요하다.
+  </p>
+  <p>
+    Report:
+    <a href="file:///Users/joon/results/MoReMouse/figures/camera_projection_audit_260521/mesh_integrity.json">mesh_integrity.json</a>
+  </p>
+
   <h2>환경 결론</h2>
   <ul>
     <li>gpu03 env: <code>moremouse</code></li>
@@ -235,11 +252,11 @@
 
   <h2>최종 판단</h2>
   <p>
-    현재까지의 결과는 “실험 준비 완료”가 아니라, 실제 데이터와 GPU를 사용한 Stage A 검증 완료다.
+    현재까지의 결과는 “본 학습 시작”이 아니라, 본 학습 전에 필요한 preflight audit이다.
     데이터 alignment, MAMMAL fitting asset 선택, camera projection convention, visualization, CUDA 학습 루프는
-    1차 검증됐다. 다만 tiny mask baseline은 방법론 결과가 아니고, mesh는 true renderer 기반 silhouette/depth audit을
-    추가로 통과해야 한다. 그 뒤 fitted mesh와 multi-view observation을 하나의 training sample로 묶는
-    geometry-aware dataset으로 확장한다.
+    1차 검증됐다. 하지만 tiny mask baseline은 방법론 결과가 아니고, mesh는 projected silhouette IoU 기준 평균
+    <code>0.8158</code>로 완벽하지 않다. 따라서 true renderer 기반 silhouette/depth audit을 먼저 추가한 뒤,
+    fitted mesh와 multi-view observation을 하나의 training sample로 묶는 geometry-aware dataset으로 확장한다.
   </p>
 
   <h2>다음 작업</h2>
@@ -247,6 +264,7 @@
     <li>900개 fitted keyframe manifest 기반 geometry-aware dataset 구현</li>
     <li>OBJ vertices/faces, fitting params, RGB/mask/keypoint observation 통합</li>
     <li>true mesh renderer 기반 silhouette/depth audit 추가</li>
+    <li>axis-angle canonicalization 또는 rotation representation 변환 추가</li>
     <li>tiny geometry-aware overfit 후 dense 3D objective 학습으로 확장</li>
   </ul>
 </main>
