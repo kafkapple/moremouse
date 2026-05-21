@@ -154,6 +154,8 @@
     <div class="metric"><strong>14,522 / 28,800</strong><span>mesh vertices / faces per preview frame</span></div>
     <div class="metric"><strong>0.8158</strong><span>mean projected mesh silhouette IoU</span></div>
     <div class="metric"><strong>+0.14 / +0.06</strong><span>recent fit gain at frames 1030 / 1450</span></div>
+    <div class="metric"><strong>0.8385</strong><span>best broad-source mesh IoU: frame 2760 refit_accurate_23</span></div>
+    <div class="metric"><strong>0.000 → 0.810</strong><span>mesh-free vs mesh-prior held-out view IoU</span></div>
     <div class="metric"><strong>19 passed</strong><span>local and gpu03 unit tests</span></div>
     <div class="metric"><strong>PASS</strong><span>coding principles checker</span></div>
   </div>
@@ -257,6 +259,49 @@
     <a href="file:///Users/joon/results/MoReMouse/figures/mesh_candidate_comparison_260521/report.json">mesh candidate comparison report</a>
   </p>
 
+  <h3>Broad MAMMAL Source Search</h3>
+  <p>
+    기존 3-frame 후보 비교 외에 <code>dense_accurate_0_100</code>, <code>dense_accurate_100_200</code>,
+    <code>refit_outliers_152</code>, <code>refit_accurate_23</code>, rearing/residual 후보를 자동 스캔했다.
+    23개 selected frames에서 source별 projected silhouette IoU를 비교했고, frame별 best-source 후보를 만들었다.
+  </p>
+  <div class="grid">
+    <div class="metric"><strong>0.8385</strong><span>frame 2760: refit_accurate_23 best</span></div>
+    <div class="metric"><strong>0.8379</strong><span>frame 0: dense_accurate_0_100 best</span></div>
+    <div class="metric"><strong>0.8363</strong><span>frame 9840: refit_outliers_152 best</span></div>
+    <div class="metric"><strong>0.8344</strong><span>frame 720: production_3600_canon best</span></div>
+  </div>
+  <p>
+    결론: 더 높은 성능의 최근 MAMMAL 후보는 존재한다. 특히 early dense accurate shard와
+    outlier refit set이 여러 frame에서 production보다 좋다. 다만 production이 여전히 best인 frame도 있으므로
+    단일 source 교체가 아니라 frame별 best-source manifest가 필요하다.
+  </p>
+  <p>
+    Report:
+    <a href="file:///Users/joon/results/MoReMouse/figures/mesh_source_search_260521/report.json">mesh source search report</a>
+  </p>
+
+  <h3>Mesh Prior Feasibility Ablation</h3>
+  <p>
+    full MoReMouse 학습 전, mesh가 약한 prior로 유효한지 확인하기 위해 controlled pixel MLP ablation을 실행했다.
+    train views는 <code>0,1,2,3</code>, eval views는 <code>4,5</code>이며, frames는
+    <code>0,720,1030,1450,2760,10080</code>이다. mesh-free model은 normalized pixel coordinate와 frame id만 사용했고,
+    mesh-prior model은 여기에 best-source mesh silhouette feature를 추가했다.
+  </p>
+  <div class="grid">
+    <div class="metric"><strong>0.0000</strong><span>mesh-free held-out view IoU</span></div>
+    <div class="metric"><strong>0.8102</strong><span>mesh-prior held-out view IoU</span></div>
+  </div>
+  <p>
+    해석: 현재 mesh는 final supervision으로 쓰기에는 noisy하지만, weak geometry prior로는 충분히 강한 신호를 제공한다.
+    따라서 다음 학습은 mesh를 hard GT로 두지 말고, mask/keypoint/photo consistency 중심 objective에
+    small-weight mesh regularizer 또는 initialization으로 넣는 방향이 타당하다.
+  </p>
+  <p>
+    Report:
+    <a href="file:///Users/joon/results/MoReMouse/experiments/mesh_prior_ablation_260521/report.json">mesh prior ablation report</a>
+  </p>
+
   <h3>Mesh Integrity Audit</h3>
   <p>
     Manifest와 대표 5개 fitted mesh/params를 검사했다. Manifest는 900 assets이고, 877 primary + 23 override로 구성된다.
@@ -290,10 +335,11 @@
   <h2>최종 판단</h2>
   <p>
     현재까지의 결과는 “본 학습 시작”이 아니라, 본 학습 전에 필요한 preflight audit이다.
-    Mesh는 production 전체 coverage와 최근 high-quality sparse fit 사이 tradeoff가 있다.
-    frame 1030/1450에서는 최근 accurate_3000/multi-hypothesis가 더 좋지만,
-    frame 10080에서는 production_3600_canon이 더 좋다. 따라서 즉시 전체 canonical을 교체하지 말고,
-    frame별 best-source manifest를 만들거나 true renderer audit으로 더 넓은 frame set을 비교해야 한다.
+    Mesh는 production 전체 coverage와 최근 high-quality sparse/dense fit 사이 tradeoff가 있다.
+    broad source search에서는 dense accurate shard, outlier refit, refit_accurate_23이 일부 frame에서 더 좋았지만,
+    production이 best인 frame도 남아 있다. mesh-prior ablation은 held-out view IoU <code>0.8102</code>로
+    mesh를 weak prior로 쓸 근거를 제공했다. 따라서 즉시 전체 canonical을 교체하지 말고,
+    frame별 best-source manifest와 weak-prior objective를 함께 진행한다.
   </p>
 
   <h2>다음 작업</h2>
@@ -302,9 +348,9 @@
     <li>OBJ vertices/faces, fitting params, RGB/mask/keypoint observation 통합</li>
     <li>true mesh renderer 기반 silhouette/depth audit 추가</li>
     <li>axis-angle canonicalization 또는 rotation representation 변환 추가</li>
-    <li>production vs recent high-quality sparse fit을 더 넓은 frame set에서 비교</li>
-    <li>frame별 best-source manifest 후보 작성</li>
-    <li>tiny geometry-aware overfit 후 dense 3D objective 학습으로 확장</li>
+    <li>23-frame source search를 900-frame candidate availability map으로 확장</li>
+    <li>frame별 best-source manifest를 학습 dataset에 연결</li>
+    <li>mesh weak-regularizer weight sweep 후 dense 3D objective 학습으로 확장</li>
   </ul>
 </main>
 </body>
