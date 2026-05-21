@@ -3,6 +3,9 @@ dataset:
   root: /home/joon/dev/MAMMAL_mouse/data/raw/markerless_mouse_1_nerf
   manifest: /home/joon/results/MoReMouse/datasets/markerless_mouse_1_nerf_mammal_accurate_manifest.json
   image_resolution: [800, 800]
+  outputs:
+    sanity_dir: /home/joon/results/MoReMouse/figures/sanity_260521
+    tiny_mask_baseline_dir: /home/joon/results/MoReMouse/experiments/tiny_mask_baseline_260521
   source:
     type: video_multiview
     rgb_videos: videos_undist
