@@ -125,3 +125,42 @@ dataset:
           - name: rearing_test_exp_b
             setting: rearing-specific test experiment B
             obj_path: /home/joon/dev/MAMMAL_mouse/results/fitting/rearing_test_exp_b/obj/step_2_frame_010080.obj
+  mesh_source_search:
+    output_dir: /home/joon/results/MoReMouse/figures/mesh_source_search_260521
+    min_candidates: 3
+    max_auto_frames: 16
+    frame_ids: [60, 200, 720, 980, 1030, 1450, 2700, 6000, 10080, 14810]
+    sources:
+      - name: production_3600_canon
+        setting: production baseline, canonical rotation smoothing
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_canon/obj
+      - name: production_3600_slerp
+        setting: production baseline, slerp rotation interpolation
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/production_3600_slerp/obj
+      - name: production_900_merged
+        setting: merged 900-keyframe production fit
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/production_900_merged/obj
+      - name: dense_accurate_0_100
+        setting: dense accurate refit, early-frame shard 0-100
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/dense_accurate_0_100/obj
+      - name: dense_accurate_100_200
+        setting: dense accurate refit, early-frame shard 100-200
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/dense_accurate_100_200/obj
+      - name: refit_outliers_152
+        setting: accurate refit for 152 outlier frames
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/refit_outliers_152/obj
+      - name: refit_accurate_23
+        setting: accurate refit override set, 23 selected hard frames
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/refit_accurate_23/obj
+      - name: rearing_test_exp_a
+        setting: rearing-specific test experiment A
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/rearing_test_exp_a/obj
+      - name: rearing_test_exp_b
+        setting: rearing-specific test experiment B
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/rearing_test_exp_b/obj
+      - name: residual_deform_v2
+        setting: residual deformation pilot v2, non-template residual correction
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/residual_deform_pilot_260521_v2
+      - name: residual_basis_search
+        setting: residual basis search best candidate
+        obj_dir: /home/joon/dev/MAMMAL_mouse/results/fitting/residual_basis_search_260521
