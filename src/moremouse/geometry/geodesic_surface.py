@@ -44,7 +44,7 @@ def geodesic_anchor_distances(vertices: Float[np.ndarray, "vertices 3"],
                               anchors: Int[np.ndarray, "anchors"]) -> Float[np.ndarray, "vertices anchors"]:
     """Compute shortest-path geodesic distances from selected anchors."""
     graph = build_edge_graph(vertices, faces)
-    columns = [_dijkstra(graph, int(anchor)) for anchor in anchors]
+    columns = [_finite_distances(_dijkstra(graph, int(anchor)), vertices, int(anchor)) for anchor in anchors]
     distances = np.stack(columns, axis=1).astype(np.float32)
     if not np.isfinite(distances).all():
         raise ValueError("geodesic distances contain non-finite values")
@@ -77,3 +77,13 @@ def _dijkstra(graph: list[list[tuple[int, float]]], source: int) -> Float[np.nda
                 distances[neighbor] = candidate
                 heappush(heap, (candidate, neighbor))
     return distances.astype(np.float32)
+
+
+def _finite_distances(distances: np.ndarray, vertices: np.ndarray, anchor: int) -> np.ndarray:
+    """Replace disconnected graph distances with Euclidean fallback distances."""
+    finite = np.isfinite(distances)
+    if finite.all():
+        return distances
+    distances = distances.copy()
+    distances[~finite] = np.linalg.norm(vertices[~finite] - vertices[anchor], axis=1)
+    return distances
