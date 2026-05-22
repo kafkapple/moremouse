@@ -190,8 +190,8 @@ dataset:
     image_size: [128, 128]
     panel_size: [320, 260]
     pca_components: 16
-    hidden_dim: 128
-    epochs: 3000
+    hidden_dim: 512
+    epochs: 8000
     learning_rate: 0.001
     mask_threshold: 127
-    train_log_interval: 500
+    train_log_interval: 1000
