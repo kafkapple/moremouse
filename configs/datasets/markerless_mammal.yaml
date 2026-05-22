@@ -182,3 +182,16 @@ dataset:
     frames: [0, 2760, 10080]
     input_view: 0
     panel_size: [320, 260]
+  single_view_mesh_mvp:
+    output_dir: /home/joon/results/MoReMouse/experiments/single_view_mesh_mvp_260522
+    mesh_source_report: /home/joon/results/MoReMouse/figures/mesh_source_search_260521/report.json
+    input_view: 0
+    eval_frames: [0, 2760, 10080]
+    image_size: [128, 128]
+    panel_size: [320, 260]
+    pca_components: 12
+    hidden_dim: 128
+    epochs: 600
+    learning_rate: 0.001
+    mask_threshold: 127
+    train_log_interval: 100
