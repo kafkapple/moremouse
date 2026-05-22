@@ -32,21 +32,21 @@ class MoReMouseTriplane(torch.nn.Module):
         )
         self.transformer = torch.nn.TransformerEncoder(layer, num_layers=layers)
         self.coeff_head = torch.nn.Sequential(
-            torch.nn.LayerNorm(hidden_dim),
-            torch.nn.Linear(hidden_dim, hidden_dim),
+            torch.nn.LayerNorm(hidden_dim * 16),
+            torch.nn.Linear(hidden_dim * 16, hidden_dim),
             torch.nn.GELU(),
             torch.nn.Linear(hidden_dim, components),
         )
         self.plane_head = torch.nn.Sequential(
-            torch.nn.LayerNorm(hidden_dim),
-            torch.nn.Linear(hidden_dim, 3 * plane_channels * plane_size * plane_size),
+            torch.nn.LayerNorm(hidden_dim * 16),
+            torch.nn.Linear(hidden_dim * 16, 3 * plane_channels * plane_size * plane_size),
         )
 
     def forward(self, images: torch.Tensor) -> dict[str, torch.Tensor]:
         """Return normalized PCA coefficients and triplane tensors."""
         tokens = self.encoder(images).flatten(2).transpose(1, 2) + self.position
         tokens = self.transformer(tokens)
-        pooled = tokens.mean(dim=1)
-        triplane = self.plane_head(pooled)
+        features = tokens.flatten(1)
+        triplane = self.plane_head(features)
         triplane = triplane.view(images.shape[0], 3, self.plane_channels, self.plane_size, self.plane_size)
-        return {"coeffs": self.coeff_head(pooled), "triplanes": triplane}
+        return {"coeffs": self.coeff_head(features), "triplanes": triplane}
