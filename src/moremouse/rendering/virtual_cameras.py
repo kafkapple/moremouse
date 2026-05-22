@@ -5,7 +5,7 @@ import numpy as np
 
 def spherical_virtual_cameras(count: int, radius: float, image_size: tuple[int, int],
                               fov_degrees: float, elevation_degrees: float = 15.0) -> list[dict]:
-    """Create orbit cameras that look at the origin using the MAMMAL -Y-up convention."""
+    """Create orbit cameras that look at the origin using a Z-up visualization world."""
     if count < 1:
         raise ValueError("camera count must be positive")
     width, height = image_size
@@ -13,11 +13,11 @@ def spherical_virtual_cameras(count: int, radius: float, image_size: tuple[int, 
     intrinsic = np.array([[focal, 0, width / 2], [0, focal, height / 2], [0, 0, 1]], dtype=np.float64)
     cameras = []
     elevation = np.deg2rad(elevation_degrees)
-    up = np.array([0.0, -1.0, 0.0], dtype=np.float64)
+    up = np.array([0.0, 0.0, 1.0], dtype=np.float64)
     for index in range(count):
         azimuth = 2.0 * np.pi * index / count
         position = radius * np.array(
-            [np.cos(elevation) * np.cos(azimuth), -np.sin(elevation), np.cos(elevation) * np.sin(azimuth)],
+            [np.cos(elevation) * np.cos(azimuth), np.cos(elevation) * np.sin(azimuth), np.sin(elevation)],
             dtype=np.float64,
         )
         rotation = look_at_rotation(position, np.zeros(3, dtype=np.float64), up)

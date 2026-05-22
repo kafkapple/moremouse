@@ -371,8 +371,9 @@
   <p>
     이 dense-view 그림은 실제 실험실 6개 카메라 영상이 아니라, 논문의 synthetic dense-view dataset 생성 단계를
     재현하기 위한 64개 가상 orbit camera 렌더다. 한 frame의 fitted MAMMAL surface를 단위 scale로 정규화하고,
-    MAMMAL 좌표계의 <code>-Y up</code> 축을 유지한 채 반지름 <code>2.22</code>, FoV <code>29.86°</code> camera sphere 위에
-    64개 시점을 균일 배치했다.
+    MAMMAL 좌표를 dense-preview용 <code>Z-up</code> visualization world로 회전시킨 뒤 반지름 <code>2.22</code>, FoV <code>29.86°</code>
+    camera sphere 위에 64개 시점을 균일 배치했다. 이 변환은 현재 저장소의
+    <code>docs/references.md</code> 와 <code>src/moremouse/rendering/virtual_cameras.py</code> 기준과 일치한다.
     각 시점은 세 종류의 supervision triplet으로 저장된다:
     <code>view_##_gaussian.png</code>는 surface triangle center에 놓은 Gaussian splat proxy,
     <code>view_##_geodesic.png</code>는 geodesic anchor-distance embedding의 RGB projection,

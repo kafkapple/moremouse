@@ -51,7 +51,9 @@ def normalize_vertices(vertices: np.ndarray) -> np.ndarray:
     center = (vertices.min(axis=0) + vertices.max(axis=0)) * 0.5
     shifted = vertices - center
     scale = np.linalg.norm(shifted, axis=1).max()
-    return (shifted / max(float(scale), np.finfo(np.float32).eps)).astype(np.float32)
+    normalized = shifted / max(float(scale), np.finfo(np.float32).eps)
+    visualization = np.stack([normalized[:, 0], normalized[:, 2], -normalized[:, 1]], axis=1)
+    return visualization.astype(np.float32)
 
 
 def render_dense_views(vertices: np.ndarray, faces: np.ndarray, colors: np.ndarray,
