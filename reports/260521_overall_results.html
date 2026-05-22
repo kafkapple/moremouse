@@ -156,6 +156,7 @@
     <div class="metric"><strong>+0.14 / +0.06</strong><span>recent fit gain at frames 1030 / 1450</span></div>
     <div class="metric"><strong>0.8385</strong><span>best broad-source mesh IoU: frame 2760 refit_accurate_23</span></div>
     <div class="metric"><strong>0.000 → 0.810</strong><span>mesh-free vs mesh-prior held-out view IoU</span></div>
+    <div class="metric"><strong>3 frames</strong><span>single-view input to 6-view reconstruction proxy renders</span></div>
     <div class="metric"><strong>19 passed</strong><span>local and gpu03 unit tests</span></div>
     <div class="metric"><strong>PASS</strong><span>coding principles checker</span></div>
   </div>
@@ -316,6 +317,35 @@
   <p>
     Report:
     <a href="file:///Users/joon/results/MoReMouse/experiments/mesh_prior_ablation_260521/report.json">mesh prior ablation report</a>
+  </p>
+
+  <h3>Single-View Input to 6-View Reconstruction Proxy</h3>
+  <p>
+    현재 단계에서의 “최종 3D 재구성”은 학습 완료된 MoReMouse single-image model 출력이 아니라,
+    frame별 best-source MAMMAL mesh를 3D reconstruction proxy로 사용한 결과다. 각 grid의 첫 칸은
+    단일 입력 view0이고, 나머지 여섯 칸은 같은 3D mesh를 dataset의 6개 calibrated camera로 재투영한
+    multi-view render/overlay다. Cyan은 GT mask, red는 reconstructed mesh silhouette이다.
+  </p>
+  <div class="grid">
+    <div class="metric"><strong>0.8379</strong><span>frame 0: dense_accurate_0_100 mean 6-view IoU</span></div>
+    <div class="metric"><strong>0.8385</strong><span>frame 2760: refit_accurate_23 mean 6-view IoU</span></div>
+    <div class="metric"><strong>0.8199</strong><span>frame 10080: production_3600_canon mean 6-view IoU</span></div>
+  </div>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/figures/single_view_reconstruction_260522/grids/single_view_recon_frame_000000.png" alt="single view reconstruction proxy frame 0">
+    <figcaption>frame 0. Input: view0. Reconstruction proxy source: dense_accurate_0_100. Six-view render mean IoU 0.8379.</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/figures/single_view_reconstruction_260522/grids/single_view_recon_frame_002760.png" alt="single view reconstruction proxy frame 2760">
+    <figcaption>frame 2760. Input: view0. Reconstruction proxy source: refit_accurate_23. Six-view render mean IoU 0.8385.</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/figures/single_view_reconstruction_260522/grids/single_view_recon_frame_010080.png" alt="single view reconstruction proxy frame 10080">
+    <figcaption>frame 10080. Input: view0. Reconstruction proxy source: production_3600_canon. Six-view render mean IoU 0.8199.</figcaption>
+  </figure>
+  <p>
+    Report:
+    <a href="file:///Users/joon/results/MoReMouse/figures/single_view_reconstruction_260522/report.json">single-view reconstruction proxy report</a>
   </p>
 
   <h3>Mesh Integrity Audit</h3>
