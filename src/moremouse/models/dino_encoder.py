@@ -1,6 +1,7 @@
 """DINOv2 image encoder wrapper with an offline fallback."""
 
 import torch
+import torch.nn.functional as functional
 from urllib.error import URLError
 
 
@@ -28,7 +29,8 @@ class DinoImageEncoder(torch.nn.Module):
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """Return 16 spatial tokens."""
-        features = self.backbone(images)
+        inputs = functional.interpolate(images, size=(224, 224), mode="bilinear", align_corners=False)
+        features = self.backbone(inputs)
         if features.ndim == 4:
             return features.flatten(2).transpose(1, 2)
         if features.ndim == 2:
