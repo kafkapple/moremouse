@@ -105,6 +105,14 @@
       height: auto;
       background: #111111;
     }
+    video {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin: 12px 0;
+      background: #111111;
+    }
     figcaption {
       padding: 10px 12px;
       color: var(--muted);
@@ -135,15 +143,16 @@
 <body>
 <main>
   <h1>MoReMouse Stage A 결과 결론</h1>
-  <p class="meta">작성일: 2026-05-22 · repo: <code>/Users/joon/dev/MoReMouse</code> · commit: <code>f4d7194</code></p>
+  <p class="meta">작성일: 2026-05-22 · repo: <code>/Users/joon/dev/MoReMouse</code> · report updated after single-view mesh MVP run</p>
 
   <section class="summary">
     <p><span class="status">결론: Stage A 통과</span></p>
     <p>
       markerless mouse + MAMMAL 전처리 데이터를 기준으로 RGB, segmentation mask, 2D keypoint,
-      fitted mesh, CUDA 학습 루프, 결과 저장 위치를 점검했다. mesh 파일 구조와 카메라 convention은 일관되지만,
-      projected silhouette IoU와 visual overlay 기준으로 surface 품질은 완벽하지 않다.
-      아직 full MoReMouse dense 3D 학습 결과가 아니며, geometry-aware 학습 전 true renderer audit이 남아 있다.
+      fitted mesh, CUDA 학습 루프, 결과 저장 위치를 점검했다. 이후 paper-aligned first implementation으로
+      단일 RGB view0 입력에서 best-source MAMMAL mesh PCA coefficient를 예측하는 learned MVP를 구현했다.
+      learned MVP는 3개 대표 frame에서 6-view projected silhouette mean IoU <code>0.8184/0.8284/0.8214</code>를 달성했다.
+      단, 이는 full MoReMouse의 AGAM synthetic training, DINOv2/triplane NeRF, DMTet mesh extraction까지 구현한 최종 모델은 아니다.
     </p>
   </section>
 
@@ -156,6 +165,7 @@
     <div class="metric"><strong>+0.14 / +0.06</strong><span>recent fit gain at frames 1030 / 1450</span></div>
     <div class="metric"><strong>0.8385</strong><span>best broad-source mesh IoU: frame 2760 refit_accurate_23</span></div>
     <div class="metric"><strong>0.000 → 0.810</strong><span>mesh-free vs mesh-prior held-out view IoU</span></div>
+    <div class="metric"><strong>0.818 / 0.828 / 0.821</strong><span>learned single-view RGB to 6-view mesh render IoU</span></div>
     <div class="metric"><strong>3 frames</strong><span>single-view input to 6-view reconstruction proxy renders</span></div>
     <div class="metric"><strong>19 passed</strong><span>local and gpu03 unit tests</span></div>
     <div class="metric"><strong>PASS</strong><span>coding principles checker</span></div>
@@ -200,6 +210,7 @@
     Video:
     <a href="file:///Users/joon/results/MoReMouse/figures/sanity_260521/markerless_sanity.mp4">markerless_sanity.mp4</a>
   </p>
+  <video controls src="file:///Users/joon/results/MoReMouse/figures/sanity_260521/markerless_sanity.mp4"></video>
 
   <h3>Camera Projection Audit</h3>
   <p>
@@ -319,10 +330,40 @@
     <a href="file:///Users/joon/results/MoReMouse/experiments/mesh_prior_ablation_260521/report.json">mesh prior ablation report</a>
   </p>
 
+  <h3>Learned Single-View RGB to 6-View Mesh MVP</h3>
+  <p>
+    실제 구현된 first MVP는 단일 RGB input view0만 받아 small CNN encoder로 best-source MAMMAL mesh의
+    PCA coefficient를 예측하고, 예측된 3D mesh를 6개 calibrated camera로 다시 렌더링한다.
+    초기 실패 원인은 PCA coefficient scale 미정규화와 전역 평균 풀링으로 인한 pose/spatial 정보 손실이었다.
+    최종 실행은 coefficient 정규화, 4x4 spatial feature 보존, hidden dim 512, 8000 epoch overfit 검증으로 진행했다.
+    Cyan은 GT mask, red는 learned reconstruction silhouette이다.
+  </p>
+  <div class="grid">
+    <div class="metric"><strong>0.8184</strong><span>frame 0: learned single-view mean 6-view IoU</span></div>
+    <div class="metric"><strong>0.8284</strong><span>frame 2760: learned single-view mean 6-view IoU</span></div>
+    <div class="metric"><strong>0.8214</strong><span>frame 10080: learned single-view mean 6-view IoU</span></div>
+  </div>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/experiments/single_view_mesh_mvp_260522/grids/single_view_mesh_mvp_frame_000000.png" alt="learned single view mesh MVP frame 0">
+    <figcaption>frame 0. Input: view0 RGB. Target source: dense_accurate_0_100. Learned 6-view render mean IoU 0.8184.</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/experiments/single_view_mesh_mvp_260522/grids/single_view_mesh_mvp_frame_002760.png" alt="learned single view mesh MVP frame 2760">
+    <figcaption>frame 2760. Input: view0 RGB. Target source: refit_accurate_23. Learned 6-view render mean IoU 0.8284.</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/experiments/single_view_mesh_mvp_260522/grids/single_view_mesh_mvp_frame_010080.png" alt="learned single view mesh MVP frame 10080">
+    <figcaption>frame 10080. Input: view0 RGB. Target source: production_3600_canon. Learned 6-view render mean IoU 0.8214.</figcaption>
+  </figure>
+  <p>
+    Report:
+    <a href="file:///Users/joon/results/MoReMouse/experiments/single_view_mesh_mvp_260522/report.json">learned single-view mesh MVP report</a>
+  </p>
+
   <h3>Single-View Input to 6-View Reconstruction Proxy</h3>
   <p>
-    현재 단계에서의 “최종 3D 재구성”은 학습 완료된 MoReMouse single-image model 출력이 아니라,
-    frame별 best-source MAMMAL mesh를 3D reconstruction proxy로 사용한 결과다. 각 grid의 첫 칸은
+    이 항목은 learned model 결과가 아니라 frame별 best-source MAMMAL mesh를 3D reconstruction proxy로 사용한
+    upper-bound/reference 결과다. 각 grid의 첫 칸은
     단일 입력 view0이고, 나머지 여섯 칸은 같은 3D mesh를 dataset의 6개 calibrated camera로 재투영한
     multi-view render/overlay다. Cyan은 GT mask, red는 reconstructed mesh silhouette이다.
   </p>
