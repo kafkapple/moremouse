@@ -195,3 +195,22 @@ dataset:
     learning_rate: 0.001
     mask_threshold: 127
     train_log_interval: 1000
+  full_moremouse:
+    output_dir: /home/joon/results/MoReMouse/experiments/full_moremouse_260522
+    mesh_source_report: /home/joon/results/MoReMouse/figures/mesh_source_search_260521/report.json
+    input_view: 0
+    eval_frames: [0, 2760, 10080]
+    image_size: [128, 128]
+    panel_size: [320, 260]
+    pca_components: 16
+    hidden_dim: 256
+    plane_channels: 16
+    plane_size: 32
+    transformer_layers: 2
+    transformer_heads: 8
+    geodesic_anchors: 8
+    epochs: 5000
+    learning_rate: 0.001
+    triplane_l2_weight: 0.0001
+    mask_threshold: 127
+    train_log_interval: 1000
