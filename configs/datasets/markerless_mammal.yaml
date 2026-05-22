@@ -176,3 +176,9 @@ dataset:
     learning_rate: 0.001
     hidden_dim: 64
     threshold: 0.5
+  single_view_reconstruction_viz:
+    output_dir: /home/joon/results/MoReMouse/figures/single_view_reconstruction_260522
+    mesh_source_report: /home/joon/results/MoReMouse/figures/mesh_source_search_260521/report.json
+    frames: [0, 2760, 10080]
+    input_view: 0
+    panel_size: [320, 260]
