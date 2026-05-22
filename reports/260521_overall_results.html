@@ -152,9 +152,10 @@
       fitted mesh, CUDA 학습 루프, 결과 저장 위치를 점검했다. 이후 paper-aligned first implementation으로
       단일 RGB view0 입력에서 best-source MAMMAL mesh PCA coefficient를 예측하는 learned MVP를 구현했다.
       learned MVP는 3개 대표 frame에서 6-view projected silhouette mean IoU <code>0.8184/0.8284/0.8214</code>를 달성했다.
-      추가로 논문 모듈을 모두 포함하는 local full-stack 구현을 완료했다. 이 구현은 MAMMAL best-source mesh를
+      추가로 논문 모듈을 모두 포함하는 local full-stack 구현을 완료했다. 이 구현은 DINOv2 tokenizer와 MAMMAL best-source mesh를
       AGAM geometry proxy로 사용하고, geodesic correspondence render, transformer-triplane image encoder,
-      mesh extraction proxy를 연결해 6-view 평가까지 수행한다.
+      mesh extraction proxy를 연결해 6-view 평가까지 수행한다. 별도 paper-scale artifact run으로 64-view dense
+      Gaussian/geodesic/normal supervision과 DMTet proxy OBJ도 생성했다.
     </p>
   </section>
 
@@ -167,7 +168,8 @@
     <div class="metric"><strong>+0.14 / +0.06</strong><span>recent fit gain at frames 1030 / 1450</span></div>
     <div class="metric"><strong>0.8385</strong><span>best broad-source mesh IoU: frame 2760 refit_accurate_23</span></div>
     <div class="metric"><strong>0.000 → 0.810</strong><span>mesh-free vs mesh-prior held-out view IoU</span></div>
-    <div class="metric"><strong>0.815 / 0.825 / 0.811</strong><span>full-stack transformer-triplane 6-view IoU</span></div>
+    <div class="metric"><strong>0.815 / 0.824 / 0.811</strong><span>DINOv2 full-stack transformer-triplane 6-view IoU</span></div>
+    <div class="metric"><strong>64 views</strong><span>paper-scale dense AGAM-proxy supervision triplets</span></div>
     <div class="metric"><strong>0.818 / 0.828 / 0.821</strong><span>learned single-view RGB to 6-view mesh render IoU</span></div>
     <div class="metric"><strong>3 frames</strong><span>single-view input to 6-view reconstruction proxy renders</span></div>
     <div class="metric"><strong>19 passed</strong><span>local and gpu03 unit tests</span></div>
@@ -335,28 +337,36 @@
 
   <h3>Full MoReMouse Local Stack</h3>
   <p>
-    논문 전체 구조를 local data에 맞게 runnable pipeline으로 구현했다. AGAM은 현재 best-source MAMMAL mesh를
-    geometry proxy로 사용하고, geodesic anchor embedding을 synthetic semantic supervision으로 렌더링했다.
-    단일 RGB view0 입력은 transformer-triplane encoder를 통과해 mesh PCA coefficient와 triplane latent를 예측하고,
+    논문 전체 구조를 local data에 맞게 runnable pipeline으로 구현했다. DINOv2 ViT-B/14 tokenizer는 gpu03의
+    torch hub cache에서 실제 로드되었고, frozen DINO token을 cache한 뒤 transformer/triplane heads를 학습했다.
+    AGAM은 현재 best-source MAMMAL mesh를 geometry proxy로 사용하고, geodesic anchor embedding을
+    synthetic semantic supervision으로 렌더링했다. 단일 RGB view0 입력은 DINOv2 + transformer-triplane encoder를 통과해
+    mesh PCA coefficient와 triplane latent를 예측하고,
     mesh extraction proxy로 3D mesh를 복원한 뒤 6개 calibrated view에 재투영한다.
   </p>
   <div class="grid">
-    <div class="metric"><strong>1.25e-08</strong><span>best normalized coefficient MSE</span></div>
-    <div class="metric"><strong>0.8146</strong><span>frame 0: full-stack mean 6-view IoU</span></div>
-    <div class="metric"><strong>0.8245</strong><span>frame 2760: full-stack mean 6-view IoU</span></div>
-    <div class="metric"><strong>0.8113</strong><span>frame 10080: full-stack mean 6-view IoU</span></div>
+    <div class="metric"><strong>2.46e-12</strong><span>DINOv2 best normalized coefficient MSE</span></div>
+    <div class="metric"><strong>0.8145</strong><span>frame 0: DINO full-stack mean 6-view IoU</span></div>
+    <div class="metric"><strong>0.8244</strong><span>frame 2760: DINO full-stack mean 6-view IoU</span></div>
+    <div class="metric"><strong>0.8111</strong><span>frame 10080: DINO full-stack mean 6-view IoU</span></div>
+    <div class="metric"><strong>64 × 3</strong><span>dense Gaussian/geodesic/normal paper-scale views</span></div>
+    <div class="metric"><strong>24³</strong><span>DMTet proxy extraction grid resolution</span></div>
   </div>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/experiments/full_moremouse_260522/grids/full_moremouse_frame_000000.png" alt="full MoReMouse local stack frame 0">
-    <figcaption>frame 0. Full-stack single-view transformer-triplane reconstruction. Mean 6-view IoU 0.8146.</figcaption>
+    <figcaption>frame 0. DINOv2 full-stack single-view transformer-triplane reconstruction. Mean 6-view IoU 0.8145.</figcaption>
   </figure>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/experiments/full_moremouse_260522/grids/full_moremouse_frame_002760.png" alt="full MoReMouse local stack frame 2760">
-    <figcaption>frame 2760. Full-stack single-view transformer-triplane reconstruction. Mean 6-view IoU 0.8245.</figcaption>
+    <figcaption>frame 2760. DINOv2 full-stack single-view transformer-triplane reconstruction. Mean 6-view IoU 0.8244.</figcaption>
   </figure>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/experiments/full_moremouse_260522/grids/full_moremouse_frame_010080.png" alt="full MoReMouse local stack frame 10080">
-    <figcaption>frame 10080. Full-stack single-view transformer-triplane reconstruction. Mean 6-view IoU 0.8113.</figcaption>
+    <figcaption>frame 10080. DINOv2 full-stack single-view transformer-triplane reconstruction. Mean 6-view IoU 0.8111.</figcaption>
+  </figure>
+  <figure>
+    <img src="file:///Users/joon/results/MoReMouse/experiments/paper_scale_260522/debug/dense_64_preview.png" alt="paper scale dense 64 view preview">
+    <figcaption>paper-scale dense-view preview. 64 orbit views 중 앞 8개 Gaussian/geodesic-color supervision render.</figcaption>
   </figure>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/experiments/full_moremouse_260522/grids/geodesic_f002760.png" alt="geodesic correspondence render frame 2760">
@@ -369,6 +379,8 @@
   <p>
     Report:
     <a href="file:///Users/joon/results/MoReMouse/experiments/full_moremouse_260522/report.json">full MoReMouse local stack report</a>
+    ·
+    <a href="file:///Users/joon/results/MoReMouse/experiments/paper_scale_260522/report.json">paper-scale 64-view/DMTet report</a>
   </p>
 
   <h3>Learned Single-View RGB to 6-View Mesh MVP</h3>
