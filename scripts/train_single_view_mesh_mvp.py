@@ -72,7 +72,11 @@ def pca_fit(vertices: np.ndarray, components: int) -> dict:
     _, _, vt = np.linalg.svd(centered, full_matrices=False)
     basis = vt[:components].astype(np.float32)
     coeffs = centered @ basis.T
-    return {"mean": mean.astype(np.float32), "basis": basis, "coeffs": coeffs.astype(np.float32)}
+    coeff_mean = coeffs.mean(axis=0, keepdims=True)
+    coeff_std = coeffs.std(axis=0, keepdims=True) + 1e-6
+    coeffs = (coeffs - coeff_mean) / coeff_std
+    return {"mean": mean.astype(np.float32), "basis": basis, "coeffs": coeffs.astype(np.float32),
+            "coeff_mean": coeff_mean.astype(np.float32), "coeff_std": coeff_std.astype(np.float32)}
 
 
 def train_model(data: dict, exp: dict, device: torch.device) -> tuple[SingleViewMeshMvp, dict]:
@@ -121,6 +125,7 @@ def render_eval_grids(
 
 def reconstruct_vertices(coeff: np.ndarray, basis: dict, vertex_count: int) -> np.ndarray:
     """Reconstruct vertices from predicted PCA coefficients."""
+    coeff = coeff * basis["coeff_std"] + basis["coeff_mean"]
     flat = coeff @ basis["basis"] + basis["mean"]
     return flat.reshape(vertex_count, 3).astype(np.float32)
 
@@ -190,7 +195,6 @@ def save_grid(panels: list[Image.Image], output_path: Path) -> None:
 def scope_note() -> str:
     """Return scope note for this MVP."""
     return "Single-view RGB encoder predicts PCA coefficients of best-source MAMMAL mesh vertices."
-
 
 if __name__ == "__main__":
     main()

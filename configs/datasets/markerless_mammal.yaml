@@ -189,9 +189,9 @@ dataset:
     eval_frames: [0, 2760, 10080]
     image_size: [128, 128]
     panel_size: [320, 260]
-    pca_components: 12
+    pca_components: 16
     hidden_dim: 128
-    epochs: 600
+    epochs: 3000
     learning_rate: 0.001
     mask_threshold: 127
-    train_log_interval: 100
+    train_log_interval: 500
