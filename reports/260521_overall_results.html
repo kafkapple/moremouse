@@ -368,6 +368,18 @@
     <img src="file:///Users/joon/results/MoReMouse/experiments/paper_scale_260522/debug/dense_64_preview.png" alt="paper scale dense 64 view preview">
     <figcaption>paper-scale dense-view preview. 64 orbit views 중 앞 8개 Gaussian/geodesic-color supervision render.</figcaption>
   </figure>
+  <p>
+    이 dense-view 그림은 실제 실험실 6개 카메라 영상이 아니라, 논문의 synthetic dense-view dataset 생성 단계를
+    재현하기 위한 64개 가상 orbit camera 렌더다. 한 frame의 fitted MAMMAL surface를 단위 scale로 정규화하고,
+    반지름 <code>2.22</code>, FoV <code>29.86°</code> camera sphere 위에 64개 시점을 균일 배치했다.
+    각 시점은 세 종류의 supervision triplet으로 저장된다:
+    <code>view_##_gaussian.png</code>는 surface triangle center에 놓은 Gaussian splat proxy,
+    <code>view_##_geodesic.png</code>는 geodesic anchor-distance embedding의 RGB projection,
+    <code>view_##_normal.png</code>는 local surface orientation normal map이다.
+    현재 preview의 색이 실제 mouse texture처럼 보이지 않는 이유는 RGB appearance가 아니라 correspondence embedding 색을
+    Gaussian 색으로 넣어 semantic/debug 용도로 렌더했기 때문이다. 저자 AGAM 수준으로 가려면 이 Gaussian 색, opacity,
+    anisotropic scale/rotation을 StyleUNet 계열 network가 real sparse-view photometric loss로 학습해야 한다.
+  </p>
   <figure>
     <img src="file:///Users/joon/results/MoReMouse/experiments/full_moremouse_260522/grids/geodesic_f002760.png" alt="geodesic correspondence render frame 2760">
     <figcaption>frame 2760 geodesic correspondence render. 색은 mesh surface anchor-distance embedding의 PCA RGB projection이다.</figcaption>
