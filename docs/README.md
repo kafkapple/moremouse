@@ -11,6 +11,7 @@ This is the single entry point for project documentation.
 - [Dataset Plan](design/dataset_plan.md)
 - [Canonical Data Decision](design/canonical_data_decision.md)
 - [Author-Level MoReMouse PRD](design/author_level_moremouse_prd.md)
+- [Full Reproduction Checklist](design/full_reproduction_checklist.md)
 - [References](references.md)
 
 ## Experiment Log

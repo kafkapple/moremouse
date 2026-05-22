@@ -31,6 +31,8 @@ Primary references:
 
 This reproduction plan is now paired with `docs/design/author_level_moremouse_prd.md`, which defines the stage-level module boundaries, acceptance criteria, and long-run training sequence. Use the PRD as the implementation contract and this plan as the execution roadmap.
 
+This plan is also paired with `docs/design/full_reproduction_checklist.md`, which freezes the checklist, stop conditions, and stage scheduling that the long-run reproduction job must follow.
+
 ## Dense-View Visualization Meaning
 
 The current dense-view preview is not a real six-camera video frame and not a final photorealistic AGAM render. It is a synthetic supervision diagnostic:
@@ -218,6 +220,22 @@ Deliverables:
   - local full-stack MVP
   - DMTet output
 - final embedded HTML report.
+
+## Long-Run Execution Order
+
+1. Lock the checklist and SSOT paths before stage start.
+2. Run the AGAM stage until the previews are stable.
+3. Render dense supervision artifacts and store the manifest.
+4. Train the triplane proxy and then the longer triplane run.
+5. Run DMTet extraction and refinement.
+6. Consolidate the HTML report and archive the stage reports.
+
+## Operational Notes
+
+- Before launching a multi-day run, check gpu03 free VRAM and `/home/joon` storage.
+- Keep each stage in its own output root so reruns do not destroy earlier artifacts.
+- Use the existing `moremouse` conda environment only; do not install into base.
+- When a stage fails, preserve the checkpoint, the config snapshot, and the resource snapshot in the report.
 
 ## Immediate Next Actions
 

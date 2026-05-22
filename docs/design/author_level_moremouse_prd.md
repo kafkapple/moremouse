@@ -225,6 +225,7 @@ Primary losses:
 - `scripts/render_author_level_dense_dataset.py`
 - `scripts/train_triplane_nerf.py`
 - `scripts/train_dmtet.py`
+- `scripts/reproduce_author_level_moremouse.py`
 - `configs/experiments/moremouse_author_level.yaml`
 
 ## Required Visualization Artifacts
