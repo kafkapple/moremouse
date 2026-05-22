@@ -27,6 +27,10 @@ Primary references:
   - coding principles: PASS.
   - gpu03 run: DINOv2 cache used, best coeff MSE `2.46e-12`.
 
+## Companion PRD
+
+This reproduction plan is now paired with `docs/design/author_level_moremouse_prd.md`, which defines the stage-level module boundaries, acceptance criteria, and long-run training sequence. Use the PRD as the implementation contract and this plan as the execution roadmap.
+
 ## Dense-View Visualization Meaning
 
 The current dense-view preview is not a real six-camera video frame and not a final photorealistic AGAM render. It is a synthetic supervision diagnostic:

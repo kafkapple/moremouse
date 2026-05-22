@@ -10,6 +10,7 @@ This is the single entry point for project documentation.
 - [Test and Verification Plan](design/test_verification_plan.md)
 - [Dataset Plan](design/dataset_plan.md)
 - [Canonical Data Decision](design/canonical_data_decision.md)
+- [Author-Level MoReMouse PRD](design/author_level_moremouse_prd.md)
 - [References](references.md)
 
 ## Experiment Log

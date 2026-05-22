@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import numpy as np
-from jaxtyping import Float, Int
 from pydantic import BaseModel, ConfigDict, field_validator
 
 
@@ -12,8 +11,8 @@ class ObjMesh(BaseModel, frozen=True):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    vertices: Float[np.ndarray, "vertices 3"]
-    faces: Int[np.ndarray, "faces corners"]
+    vertices: np.ndarray
+    faces: np.ndarray
 
     @field_validator("vertices")
     @classmethod

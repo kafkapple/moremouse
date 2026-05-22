@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
-from jaxtyping import Float
 
 
 KEYPOINT_NAMES = (
@@ -90,7 +89,7 @@ def overlay_mask(
 
 def draw_keypoints(
     image: Image.Image,
-    keypoints: Float[np.ndarray, "keypoints channels"],
+    keypoints: np.ndarray,
     radius: int = 4,
 ) -> Image.Image:
     """Draw visible 2D keypoints on an image."""

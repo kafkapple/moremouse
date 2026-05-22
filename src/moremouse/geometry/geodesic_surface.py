@@ -5,11 +5,9 @@ from __future__ import annotations
 from heapq import heappop, heappush
 
 import numpy as np
-from jaxtyping import Float, Int
 
 
-def build_edge_graph(vertices: Float[np.ndarray, "vertices 3"],
-                     faces: Int[np.ndarray, "faces corners"]) -> list[list[tuple[int, float]]]:
+def build_edge_graph(vertices: np.ndarray, faces: np.ndarray) -> list[list[tuple[int, float]]]:
     """Build a weighted undirected graph from mesh triangle edges."""
     graph: list[list[tuple[int, float]]] = [[] for _ in range(vertices.shape[0])]
     edges: set[tuple[int, int]] = set()
@@ -26,7 +24,7 @@ def build_edge_graph(vertices: Float[np.ndarray, "vertices 3"],
     return graph
 
 
-def farthest_point_anchors(vertices: Float[np.ndarray, "vertices 3"], count: int) -> Int[np.ndarray, "anchors"]:
+def farthest_point_anchors(vertices: np.ndarray, count: int) -> np.ndarray:
     """Select deterministic Euclidean farthest-point anchors."""
     if count < 1:
         raise ValueError("anchor count must be positive")
@@ -39,9 +37,7 @@ def farthest_point_anchors(vertices: Float[np.ndarray, "vertices 3"], count: int
     return np.asarray(anchors, dtype=np.int32)
 
 
-def geodesic_anchor_distances(vertices: Float[np.ndarray, "vertices 3"],
-                              faces: Int[np.ndarray, "faces corners"],
-                              anchors: Int[np.ndarray, "anchors"]) -> Float[np.ndarray, "vertices anchors"]:
+def geodesic_anchor_distances(vertices: np.ndarray, faces: np.ndarray, anchors: np.ndarray) -> np.ndarray:
     """Compute shortest-path geodesic distances from selected anchors."""
     graph = build_edge_graph(vertices, faces)
     columns = [_finite_distances(_dijkstra(graph, int(anchor)), vertices, int(anchor)) for anchor in anchors]
@@ -51,18 +47,22 @@ def geodesic_anchor_distances(vertices: Float[np.ndarray, "vertices 3"],
     return distances
 
 
-def geodesic_rgb_embedding(distances: Float[np.ndarray, "vertices anchors"]) -> Float[np.ndarray, "vertices 3"]:
+def geodesic_rgb_embedding(distances: np.ndarray) -> np.ndarray:
     """Map geodesic anchor distances to stable RGB-like correspondence colors."""
     centered = distances - distances.mean(axis=0, keepdims=True)
     _, _, vt = np.linalg.svd(centered, full_matrices=False)
-    channels = centered @ vt[:3].T
+    components = min(3, vt.shape[0])
+    channels = centered @ vt[:components].T
+    if components < 3:
+        padding = np.zeros((channels.shape[0], 3 - components), dtype=channels.dtype)
+        channels = np.concatenate([channels, padding], axis=1)
     minimum = channels.min(axis=0, keepdims=True)
     maximum = channels.max(axis=0, keepdims=True)
     scale = np.maximum(maximum - minimum, np.finfo(np.float32).eps)
     return ((channels - minimum) / scale).astype(np.float32)
 
 
-def _dijkstra(graph: list[list[tuple[int, float]]], source: int) -> Float[np.ndarray, "vertices"]:
+def _dijkstra(graph: list[list[tuple[int, float]]], source: int) -> np.ndarray:
     """Run Dijkstra from one source vertex."""
     distances = np.full(len(graph), np.inf, dtype=np.float64)
     distances[source] = 0.0

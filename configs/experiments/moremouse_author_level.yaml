@@ -1,0 +1,27 @@
+dataset_config: configs/datasets/markerless_mammal.yaml
+
+experiment:
+  name: author_level_moremouse_260522
+  output_subdir: experiments/author_level_moremouse_260522
+  mesh_source_report: /home/joon/results/MoReMouse/figures/mesh_source_search_260521/report.json
+  canonical_frame_id: 0
+  train_frames: [0, 720, 1030, 1450, 2760, 6000, 10080]
+  eval_frames: [0, 2760, 10080]
+  input_view: 0
+  image_size: [378, 378]
+  preview_size: [320, 260]
+  anchor_count: 1024
+  geodesic_anchor_count: 8
+  hidden_dim: 256
+  transformer_layers: 2
+  transformer_heads: 8
+  use_dino: true
+  epochs: 400
+  learning_rate: 3.0e-4
+  train_log_interval: 20
+  dense_view_count: 64
+  dense_image_size: [256, 256]
+  camera_radius: 2.22
+  fov_degrees: 29.86
+  mask_threshold: 127
+  preview_top_k: 8

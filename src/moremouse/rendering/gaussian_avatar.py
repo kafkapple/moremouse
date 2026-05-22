@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 import numpy as np
-from jaxtyping import Float, Int
 from PIL import Image, ImageDraw
 
 from moremouse.geometry.projection import project_vertices
@@ -13,15 +12,15 @@ from moremouse.geometry.projection import project_vertices
 class GaussianAvatar:
     """Mesh-surface Gaussian proxy used as an AGAM-compatible supervision source."""
 
-    centers: Float[np.ndarray, "gaussians 3"]
-    colors: Float[np.ndarray, "gaussians 3"]
-    opacities: Float[np.ndarray, "gaussians"]
-    scales: Float[np.ndarray, "gaussians"]
+    centers: np.ndarray
+    colors: np.ndarray
+    opacities: np.ndarray
+    scales: np.ndarray
 
 
-def build_surface_gaussians(vertices: Float[np.ndarray, "vertices 3"],
-                            faces: Int[np.ndarray, "faces corners"],
-                            vertex_colors: Float[np.ndarray, "vertices 3"] | None = None) -> GaussianAvatar:
+def build_surface_gaussians(vertices: np.ndarray,
+                            faces: np.ndarray,
+                            vertex_colors: np.ndarray | None = None) -> GaussianAvatar:
     """Initialize one anisotropic Gaussian proxy per mesh triangle."""
     triangles = vertices[faces[:, :3]]
     centers = triangles.mean(axis=1).astype(np.float32)
