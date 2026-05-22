@@ -46,10 +46,18 @@ class MoReMouseTriplane(torch.nn.Module):
 
     def forward(self, images: torch.Tensor) -> dict[str, torch.Tensor]:
         """Return normalized PCA coefficients and triplane tensors."""
+        return self.decode_tokens(self.encode(images))
+
+    def encode(self, images: torch.Tensor) -> torch.Tensor:
+        """Encode images into 16 spatial tokens."""
         encoded = self.encoder(images)
-        tokens = (encoded if encoded.ndim == 3 else encoded.flatten(2).transpose(1, 2)) + self.position
+        return encoded if encoded.ndim == 3 else encoded.flatten(2).transpose(1, 2)
+
+    def decode_tokens(self, tokens: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Decode image tokens into coefficients and triplanes."""
+        tokens = tokens + self.position
         tokens = self.transformer(tokens)
         features = tokens.flatten(1)
         triplane = self.plane_head(features)
-        triplane = triplane.view(images.shape[0], 3, self.plane_channels, self.plane_size, self.plane_size)
+        triplane = triplane.view(tokens.shape[0], 3, self.plane_channels, self.plane_size, self.plane_size)
         return {"coeffs": self.coeff_head(features), "triplanes": triplane}

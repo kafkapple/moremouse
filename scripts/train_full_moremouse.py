@@ -16,6 +16,7 @@ from moremouse.geometry.geodesic_surface import farthest_point_anchors, geodesic
 from moremouse.geometry.obj import load_obj_mesh
 from moremouse.geometry.projection import binary_iou, project_vertices, rasterize_projected_silhouette
 from moremouse.models.triplane_reconstruction import MoReMouseTriplane
+from moremouse.models.dino_encoder import DinoImageEncoder
 from moremouse.rendering.mesh_raster import face_normals, rasterize_face_colors, vertex_to_face_colors
 from moremouse.training.reproducibility import seed_everything
 from moremouse.visualization.grid import save_pil_grid
@@ -40,7 +41,8 @@ def main() -> None:
     data = build_data(cfg, exp, output_dir)
     model, basis, losses = train_model(data, exp, device)
     rows = render_eval(cfg, exp, data, model, basis, output_dir, device)
-    report = {"device": str(device), "losses": losses, "rows": rows, "scope": scope_note(exp)}
+    scope = f"Local full-stack MoReMouse with AGAM proxy, {int(exp.geodesic_anchors)} geodesic anchors, DINO/triplane."
+    report = {"device": str(device), "losses": losses, "rows": rows, "scope": scope}
     (output_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Wrote full MoReMouse local report to {}", output_dir / "report.json")
 
@@ -60,13 +62,11 @@ def build_data(cfg: dict, exp: dict, output_dir: Path) -> dict:
     return {"images": np.stack(images), "vertices": np.stack(vertices), "frames": frames,
             "best_rows": best_rows, "faces": mesh.faces, "geodesic_colors": colors}
 
-
 def build_geodesic_colors(vertices: np.ndarray, faces: np.ndarray, anchor_count: int) -> np.ndarray:
     """Create paper-style geodesic correspondence colors on the template mesh."""
     anchors = farthest_point_anchors(vertices, anchor_count)
     distances = geodesic_anchor_distances(vertices, faces, anchors)
     return geodesic_rgb_embedding(distances)
-
 
 def load_input(cfg: dict, exp: dict, frame_id: int, frame_dir: Path) -> np.ndarray:
     """Extract and normalize one monocular RGB input."""
@@ -82,15 +82,15 @@ def train_model(data: dict, exp: dict, device: torch.device) -> tuple[MoReMouseT
     basis = pca_fit(data["vertices"], int(exp.pca_components))
     images = torch.from_numpy(data["images"]).to(device)
     targets = torch.from_numpy(basis["coeffs"]).to(device)
-    model = MoReMouseTriplane(
-        int(exp.pca_components), int(exp.hidden_dim), int(exp.plane_channels),
-        int(exp.plane_size), int(exp.transformer_layers), int(exp.transformer_heads), bool(exp.use_dino),
-    ).to(device)
+    model = MoReMouseTriplane(int(exp.pca_components), int(exp.hidden_dim), int(exp.plane_channels),
+                              int(exp.plane_size), int(exp.transformer_layers),
+                              int(exp.transformer_heads), bool(exp.use_dino)).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(exp.learning_rate))
     losses, best_loss, best_state = [], float("inf"), None
+    cached_tokens = cache_frozen_tokens(model, images)
     for epoch in range(int(exp.epochs)):
         optimizer.zero_grad(set_to_none=True)
-        output = model(images)
+        output = model.decode_tokens(cached_tokens) if cached_tokens is not None else model(images)
         coeff_loss = torch.nn.functional.mse_loss(output["coeffs"], targets)
         plane_loss = output["triplanes"].square().mean()
         loss = coeff_loss + float(exp.triplane_l2_weight) * plane_loss
@@ -110,6 +110,14 @@ def train_model(data: dict, exp: dict, device: torch.device) -> tuple[MoReMouseT
     model.load_state_dict(best_state)
     losses.append({"epoch": "best", "coeff_mse": best_loss})
     return model, basis, losses
+
+
+def cache_frozen_tokens(model: MoReMouseTriplane, images: torch.Tensor) -> torch.Tensor | None:
+    """Cache DINOv2 tokens when the image backbone is frozen."""
+    if not isinstance(model.encoder, DinoImageEncoder) or not model.encoder.uses_pretrained:
+        return None
+    with torch.no_grad():
+        return model.encode(images).detach()
 
 
 def render_eval(cfg: dict, exp: dict, data: dict, model: MoReMouseTriplane,
@@ -187,12 +195,6 @@ def label(image: Image.Image, text: str, exp: dict) -> Image.Image:
     draw.rectangle((0, 0, output.width, 34), fill=(0, 0, 0))
     draw.text((8, 8), text, fill=(255, 255, 255))
     return output
-
-
-def scope_note(exp: dict) -> str:
-    """Describe implemented paper modules."""
-    return ("Local full-stack MoReMouse: MAMMAL best-source mesh as AGAM proxy, geodesic correspondence "
-            f"with {int(exp.geodesic_anchors)} anchors, transformer-triplane image encoder, mesh extraction proxy.")
 
 if __name__ == "__main__":
     main()

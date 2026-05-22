@@ -13,6 +13,7 @@ class DinoImageEncoder(torch.nn.Module):
         super().__init__()
         self.output_dim = int(output_dim)
         self.backbone = self._load_dinov2() if pretrained else None
+        self.uses_pretrained = self.backbone is not None
         if self.backbone is None:
             self.backbone = torch.nn.Sequential(
                 torch.nn.Conv2d(3, 32, kernel_size=5, stride=2, padding=2),
