@@ -214,3 +214,13 @@ dataset:
     triplane_l2_weight: 0.0001
     mask_threshold: 127
     train_log_interval: 500
+    use_dino: true
+  paper_scale:
+    output_dir: /home/joon/results/MoReMouse/experiments/paper_scale_260522
+    mesh_source_report: /home/joon/results/MoReMouse/figures/mesh_source_search_260521/report.json
+    frame_id: 2760
+    dense_view_count: 64
+    dense_image_size: [256, 256]
+    camera_radius: 2.22
+    fov_degrees: 29.86
+    dmtet_resolution: 24

@@ -84,7 +84,7 @@ def train_model(data: dict, exp: dict, device: torch.device) -> tuple[MoReMouseT
     targets = torch.from_numpy(basis["coeffs"]).to(device)
     model = MoReMouseTriplane(
         int(exp.pca_components), int(exp.hidden_dim), int(exp.plane_channels),
-        int(exp.plane_size), int(exp.transformer_layers), int(exp.transformer_heads),
+        int(exp.plane_size), int(exp.transformer_layers), int(exp.transformer_heads), bool(exp.use_dino),
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(exp.learning_rate))
     losses, best_loss, best_state = [], float("inf"), None
