@@ -85,6 +85,25 @@ def target_avatar_to_render_avatar(avatar: TorchGaussianAvatar) -> GaussianAvata
     )
 
 
+def avatar_to_visualization_world(avatar: GaussianAvatar) -> GaussianAvatar:
+    """Normalize one avatar into the Z-up visualization world used by dense previews."""
+    centers = avatar.centers.astype(np.float32)
+    center = (centers.min(axis=0) + centers.max(axis=0)) * 0.5
+    shifted = centers - center
+    scale = float(np.linalg.norm(shifted, axis=1).max())
+    normalized = shifted / max(scale, float(np.finfo(np.float32).eps))
+    centers = np.stack(
+        [normalized[:, 0], normalized[:, 2], -normalized[:, 1]],
+        axis=1,
+    ).astype(np.float32)
+    return GaussianAvatar(
+        centers=centers,
+        colors=avatar.colors.astype(np.float32),
+        opacities=avatar.opacities.astype(np.float32),
+        scales=avatar.scales.astype(np.float32),
+    )
+
+
 def stack_torch_avatars(avatars: list[TorchGaussianAvatar]) -> TorchGaussianAvatar:
     """Stack a list of avatar targets into one batch."""
     if not avatars:

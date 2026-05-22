@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageChops, ImageDraw
 
-from moremouse.data.agam import target_avatar_to_render_avatar
+from moremouse.data.agam import avatar_to_visualization_world, target_avatar_to_render_avatar
 from moremouse.data.video_frames import extract_frame
 from moremouse.geometry.obj import load_obj_mesh
 from moremouse.models.agam import AgamAvatarModel
@@ -104,6 +104,9 @@ def render_dense_preview(
     output_dir: Path,
 ) -> dict:
     """Render a dense target/prediction preview on orbit cameras."""
+    frame_to_index = {frame_id: index for index, frame_id in enumerate(batch["frame_ids"])}
+    preview_frame_id = int(exp.eval_frames[-1]) if exp.eval_frames else int(batch["frame_ids"][0])
+    preview_index = frame_to_index.get(preview_frame_id, 0)
     cameras = spherical_virtual_cameras(
         int(exp.dense_view_count),
         float(exp.camera_radius),
@@ -111,9 +114,9 @@ def render_dense_preview(
         float(exp.fov_degrees),
     )
     with torch.no_grad():
-        prediction = model(torch.from_numpy(batch["images"][:1]).to(device))
-    target_avatar = target_avatar_to_render_avatar(single_avatar(target_batch, 0))
-    predicted_avatar = target_avatar_to_render_avatar(single_avatar(prediction.avatar, 0))
+        prediction = model(torch.from_numpy(batch["images"][preview_index:preview_index + 1]).to(device))
+    target_avatar = avatar_to_visualization_world(target_avatar_to_render_avatar(single_avatar(target_batch, preview_index)))
+    predicted_avatar = avatar_to_visualization_world(target_avatar_to_render_avatar(single_avatar(prediction.avatar, 0)))
     target_tiles: list[Image.Image] = []
     predicted_tiles: list[Image.Image] = []
     for view, camera in enumerate(cameras[: int(exp.preview_top_k)]):
@@ -127,6 +130,7 @@ def render_dense_preview(
         "preview_path": str(preview_path),
         "dense_view_count": int(exp.dense_view_count),
         "preview_top_k": int(exp.preview_top_k),
+        "preview_frame_id": preview_frame_id,
     }
 
 
