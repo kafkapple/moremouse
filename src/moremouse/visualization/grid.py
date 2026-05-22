@@ -40,3 +40,18 @@ def make_image_grid(image_paths: tuple[Path, ...], columns: int, output_path: Pa
     grid.save(output_path)
     return output_path
 
+
+def save_pil_grid(images: list[Image.Image], columns: int, output_path: Path, background: tuple[int, int, int]) -> Path:
+    """Save same-sized PIL images into a fixed-column grid."""
+    if not images:
+        raise ValueError("images must not be empty")
+    width, height = images[0].size
+    if any(image.size != (width, height) for image in images):
+        raise ValueError("All images must have the same size")
+    rows = (len(images) + columns - 1) // columns
+    grid = Image.new("RGB", (columns * width, rows * height), background)
+    for index, image in enumerate(images):
+        grid.paste(image, ((index % columns) * width, (index // columns) * height))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    grid.save(output_path)
+    return output_path

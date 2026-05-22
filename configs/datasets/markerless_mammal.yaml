@@ -209,8 +209,8 @@ dataset:
     transformer_layers: 2
     transformer_heads: 8
     geodesic_anchors: 8
-    epochs: 2000
-    learning_rate: 0.001
+    epochs: 5000
+    learning_rate: 0.0003
     triplane_l2_weight: 0.0001
     mask_threshold: 127
     train_log_interval: 500

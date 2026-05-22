@@ -18,6 +18,7 @@ from moremouse.geometry.projection import binary_iou, project_vertices, rasteriz
 from moremouse.models.triplane_reconstruction import MoReMouseTriplane
 from moremouse.rendering.mesh_raster import face_normals, rasterize_face_colors, vertex_to_face_colors
 from moremouse.training.reproducibility import seed_everything
+from moremouse.visualization.grid import save_pil_grid
 from moremouse.visualization.overlay import load_rgb, overlay_mask
 from scripts.audit_camera_projection import overlay_mesh_silhouette
 from scripts.train_single_view_mesh_mvp import pca_fit, reconstruct_vertices
@@ -86,7 +87,7 @@ def train_model(data: dict, exp: dict, device: torch.device) -> tuple[MoReMouseT
         int(exp.plane_size), int(exp.transformer_layers), int(exp.transformer_heads),
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(exp.learning_rate))
-    losses = []
+    losses, best_loss, best_state = [], float("inf"), None
     for epoch in range(int(exp.epochs)):
         optimizer.zero_grad(set_to_none=True)
         output = model(images)
@@ -101,6 +102,13 @@ def train_model(data: dict, exp: dict, device: torch.device) -> tuple[MoReMouseT
             item = {"epoch": epoch + 1, "coeff_mse": float(coeff_loss.detach().cpu())}
             losses.append(item)
             logger.info("epoch {} coeff_mse {:.6f}", item["epoch"], item["coeff_mse"])
+        if float(coeff_loss.detach().cpu()) < best_loss:
+            best_loss = float(coeff_loss.detach().cpu())
+            best_state = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
+    if best_state is None:
+        raise RuntimeError("No finite best model state was recorded")
+    model.load_state_dict(best_state)
+    losses.append({"epoch": "best", "coeff_mse": best_loss})
     return model, basis, losses
 
 
@@ -138,7 +146,7 @@ def render_frame(cfg: dict, exp: dict, frame_id: int, vertices: np.ndarray,
         if view == int(exp.input_view):
             save_attribute_views(uv, data["faces"], geodesic_faces, normal_faces, mask.size, output_dir, frame_id)
     grid_path = output_dir / "grids" / f"full_moremouse_frame_{frame_id:06d}.png"
-    save_grid(panels, grid_path)
+    save_pil_grid(panels, 4, grid_path, (18, 18, 18))
     return {"frame_id": frame_id, "mean_silhouette_iou": float(np.mean(scores)), "grid_path": str(grid_path)}
 
 
@@ -179,15 +187,6 @@ def label(image: Image.Image, text: str, exp: dict) -> Image.Image:
     draw.rectangle((0, 0, output.width, 34), fill=(0, 0, 0))
     draw.text((8, 8), text, fill=(255, 255, 255))
     return output
-
-
-def save_grid(panels: list[Image.Image], output_path: Path) -> None:
-    """Save seven panels as a 4x2 grid."""
-    width, height = panels[0].size
-    output = Image.new("RGB", (width * 4, height * 2), (18, 18, 18))
-    for index, panel in enumerate(panels):
-        output.paste(panel, ((index % 4) * width, (index // 4) * height))
-    output.save(output_path)
 
 
 def scope_note(exp: dict) -> str:
